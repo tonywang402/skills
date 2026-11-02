@@ -1,0 +1,1738 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{TITLE}}</title><style>
+    :root {
+      --ink: #191b1f;
+      --muted: #62676f;
+      --line: #d9dce1;
+      --paper: #f7f7f4;
+      --surface: #ffffff;
+      --green: #146c43;
+      --green-soft: #e6f3eb;
+      --coral: #b53d2e;
+      --coral-soft: #faebe7;
+      --amber: #7a5400;
+      --amber-soft: #fff3d6;
+      --teal: #12656b;
+      --teal-soft: #e4f2f2;
+      --code: #24272c;
+      --radius: 6px;
+      --shadow: 0 8px 24px rgba(25, 27, 31, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(90deg, rgba(25, 27, 31, 0.035) 1px, transparent 1px),
+        linear-gradient(rgba(25, 27, 31, 0.035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 24px 24px;
+      color: var(--ink);
+      font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+      line-height: 1.55;
+    }
+
+    a { color: inherit; }
+
+    button, input { font: inherit; }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 232px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .rail {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 20px;
+      border-right: 1px solid var(--line);
+      background: rgba(247, 247, 244, 0.96);
+      overflow-y: auto;
+    }
+
+    .rail-brand {
+      margin-bottom: 28px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .rail-brand span {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-family: "Avenir Next", Avenir, sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .language-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      margin: -10px 0 22px;
+      padding: 2px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #ecece7;
+    }
+
+    .language-switch legend { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+    .language-option {
+      min-height: 30px;
+      padding: 4px 8px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .language-option[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(25, 27, 31, 0.12); }
+    .language-option:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+
+    .rail nav { display: grid; gap: 4px; }
+
+    .rail nav a {
+      padding: 8px 10px;
+      border-left: 3px solid transparent;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .rail nav a:hover,
+    .rail nav a:focus-visible {
+      border-left-color: var(--coral);
+      color: var(--ink);
+      outline: none;
+    }
+
+    .rail-meta {
+      margin-top: 32px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+
+    main {
+      width: min(1180px, 100%);
+      padding: 48px clamp(24px, 5vw, 72px) 88px;
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--coral);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    h2, h3 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      letter-spacing: 0;
+    }
+
+    h2 { font-size: 29px; line-height: 1.2; }
+    h3 { font-size: 19px; line-height: 1.3; }
+
+    .lede {
+      max-width: 850px;
+      margin: 20px 0 0;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .badge {
+      display: inline-flex;
+      width: fit-content;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .badge.pass { color: var(--green); background: var(--green-soft); }
+    .badge.watch { color: var(--amber); background: var(--amber-soft); }
+    .badge.info { color: var(--teal); background: var(--teal-soft); }
+    .badge.high { color: var(--coral); background: var(--coral-soft); }
+
+    section {
+      scroll-margin-top: 24px;
+      margin-top: 72px;
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: 58px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+      margin-bottom: 24px;
+    }
+
+    .section-number {
+      padding-top: 4px;
+      color: var(--coral);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .section-summary {
+      max-width: 820px;
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .behavior-table,
+    .contract-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 15px 16px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #ecece7;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .flow-step {
+      position: relative;
+      min-height: 144px;
+      padding: 18px 16px;
+      border: 1px solid var(--line);
+      border-top: 4px solid var(--teal);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .flow-step:not(:last-child)::after {
+      position: absolute;
+      z-index: 2;
+      top: 50%;
+      right: -19px;
+      width: 24px;
+      color: var(--coral);
+      content: "→";
+      font-size: 20px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .flow-step b {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+
+    .flow-step p { margin: 0; color: var(--muted); font-size: 12px; }
+
+    .callout {
+      margin-top: 16px;
+      padding: 16px 18px;
+      border-left: 4px solid var(--amber);
+      background: var(--amber-soft);
+      font-size: 14px;
+    }
+
+    .risk-list, .review-points {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .risk-list li, .review-points li { margin: 7px 0; }
+
+    .file-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin: 22px 0 12px;
+    }
+
+    .file-tools input {
+      flex: 1 1 280px;
+      width: min(440px, 100%);
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--ink);
+    }
+
+    .review-button {
+      min-height: 34px;
+      padding: 5px 12px;
+      border: 1px solid #d1d9e0;
+      border-radius: 6px;
+      background: #f6f8fa;
+      color: #25292e;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .review-button:hover { background: #eff2f5; }
+    .review-button:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+    .review-button:disabled { color: #8c959f; cursor: not-allowed; }
+    .review-button.primary { border-color: rgba(31, 35, 40, 0.15); background: #1f883d; color: white; }
+    .review-button.primary:hover { background: #1a7f37; }
+    .review-button.danger { border-color: transparent; background: transparent; color: #cf222e; }
+    .review-button.danger:hover { background: #ffebe9; }
+
+    .review-helper { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 11px; }
+    .review-comments-panel { margin: 0 0 18px; border-color: #d0d7de; }
+    .review-comments-panel > summary { display: flex; gap: 8px; align-items: center; background: #f6f8fa; }
+    .review-comments-count { padding: 1px 7px; border-radius: 999px; background: #57606a; color: white; font-size: 10px; }
+    .review-comments-note { margin: 0; padding: 10px 14px; border-top: 1px solid #d0d7de; color: var(--muted); font-size: 11px; }
+    .review-comments-list { max-height: 420px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+    .review-comments-list > li { padding: 12px 14px; border-top: 1px solid #d8dee4; }
+    .review-comment-list-header { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+    .review-comment-location { color: #0969da; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+    .review-comment-body { margin: 8px 0; white-space: pre-wrap; font-size: 13px; }
+    .review-comment-preview { display: block; min-width: 0; overflow: hidden; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; text-overflow: ellipsis; white-space: pre; }
+    .review-comment-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
+    .review-empty { padding: 16px; color: var(--muted); text-align: center; }
+
+    .file-groups { display: grid; gap: 18px; }
+
+    .file-domain {
+      --domain-accent: var(--teal);
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-top: 5px solid var(--domain-accent);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: 0 4px 14px rgba(25, 27, 31, 0.05);
+      overflow: hidden;
+    }
+
+    .file-domain.frontend { --domain-accent: var(--coral); }
+    .file-domain.runtime { --domain-accent: var(--amber); }
+
+    .domain-header {
+      display: grid;
+      grid-template-columns: minmax(130px, 0.3fr) minmax(0, 1fr);
+      gap: 28px;
+      align-items: start;
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, color-mix(in srgb, var(--domain-accent) 8%, white), white 48%);
+    }
+
+    .domain-title {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+    }
+
+    .domain-title h3 { font-size: 22px; }
+
+    .domain-count {
+      color: var(--domain-accent);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .domain-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .domain-summary li {
+      padding: 4px 8px;
+      border: 1px solid color-mix(in srgb, var(--domain-accent) 24%, var(--line));
+      border-radius: 999px;
+      background: white;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .domain-groups {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      background: #f6f8fa;
+    }
+
+    .domain-groups > details {
+      border-color: #d0d7de;
+      box-shadow: none;
+    }
+
+    .domain-groups > details > summary {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      min-height: 48px;
+      background: var(--surface);
+    }
+
+    .group-step {
+      display: inline-grid;
+      width: 24px;
+      height: 24px;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--domain-accent);
+      color: white;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .group-label {
+      display: grid;
+      gap: 1px;
+    }
+
+    .group-label strong { font-size: 13px; }
+
+    .group-label small {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .group-count {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    details {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    summary {
+      padding: 13px 16px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .files {
+      display: grid;
+      margin: 0;
+      padding: 0;
+      border-top: 1px solid var(--line);
+      list-style: none;
+    }
+
+    .file {
+      display: block;
+      min-width: 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+    }
+
+    .file:last-child { border-bottom: 0; }
+
+    .file-diff {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      border-radius: 0;
+      background: var(--surface);
+    }
+
+    .file-summary {
+      display: grid;
+      grid-template-columns: 16px 30px minmax(0, 1fr) minmax(150px, 0.55fr) auto auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 11px 16px;
+      list-style: none;
+    }
+
+    .file-summary::-webkit-details-marker { display: none; }
+    .file-summary::before { color: var(--muted); content: "▸"; font-size: 13px; }
+    .file-diff[open] > .file-summary::before { content: "▾"; }
+    .file-diff[open] > .file-summary { background: #f6f8fa; }
+
+    .status-letter {
+      color: var(--green);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-weight: 800;
+    }
+
+    .status-letter.add { color: var(--coral); }
+
+    .file-path {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      overflow-wrap: anywhere;
+      font-weight: 650;
+    }
+
+    .file-role { color: var(--muted); }
+
+    .file-comment-count { padding: 1px 7px; border-radius: 999px; background: #ddf4ff; color: #0969da; font-size: 10px; white-space: nowrap; }
+
+    .diff-stat {
+      white-space: nowrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+    }
+
+    .diff-stat .added { color: #1a7f37; }
+    .diff-stat .deleted { color: #cf222e; }
+
+    .file-header-actions {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      justify-self: end;
+      white-space: nowrap;
+    }
+
+    .file-header-button {
+      display: inline-flex;
+      min-height: 28px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #d1d9e0;
+      border-radius: 6px;
+      background: #f6f8fa;
+      color: #25292e;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 600;
+    }
+
+    .file-header-button:hover { background: #eff2f5; }
+    .file-header-button:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+
+    .ask-diff-button {
+      width: 28px;
+      padding: 0;
+      border-color: transparent;
+      background: transparent;
+      font-size: 17px;
+      line-height: 1;
+    }
+
+    .ask-diff-button:hover { border-color: #d1d9e0; }
+
+    .viewed-button { gap: 6px; padding: 3px 9px; }
+
+    .viewed-box {
+      display: inline-grid;
+      width: 16px;
+      height: 16px;
+      place-items: center;
+      border: 1.5px solid #656d76;
+      border-radius: 3px;
+      background: white;
+      color: transparent;
+      font-size: 11px;
+      line-height: 1;
+    }
+
+    .viewed-button[aria-pressed="true"] .viewed-box { border-color: #1f883d; background: #1f883d; color: white; }
+    .viewed-check { visibility: hidden; }
+    .viewed-button[aria-pressed="true"] .viewed-check { visibility: visible; }
+
+    .ask-panel {
+      position: fixed;
+      z-index: 80;
+      top: 0;
+      right: 0;
+      display: flex;
+      flex-direction: column;
+      width: min(420px, 100vw);
+      height: 100vh;
+      border-left: 1px solid #d0d7de;
+      background: var(--surface);
+      box-shadow: -12px 0 30px rgba(31, 35, 40, 0.16);
+      transform: translateX(100%);
+      transition: transform 180ms ease;
+    }
+
+    .ask-panel.open { transform: translateX(0); }
+
+    .ask-panel-header {
+      display: flex;
+      flex: 0 0 auto;
+      gap: 12px;
+      min-height: 56px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid #d0d7de;
+    }
+
+    .ask-panel-title { min-width: 0; margin: 0; overflow-wrap: anywhere; font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; font-size: 14px; font-weight: 700; }
+
+    .ask-panel-close {
+      flex: 0 0 32px;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #25292e;
+      cursor: pointer;
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .ask-panel-close:hover { background: #f3f4f6; }
+    .ask-panel-close:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+    .ask-panel-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      padding: 12px;
+      overflow-y: auto;
+    }
+
+    .ask-unit h3 {
+      margin: 0 0 4px;
+      font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .ask-unit p { margin: 0; font-size: 13px; }
+
+    .ask-unit {
+      margin: 0 0 8px;
+      padding: 10px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: white;
+    }
+
+    .ask-unit-name {
+      display: inline-block;
+      max-width: 100%;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #f6f8fa;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+
+    .ask-unit-content {
+      margin: 6px 0 0;
+      padding: 7px 9px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .ask-unit-change { background: #dafbe1; color: #116329; }
+    .ask-unit-reason { background: #ffebe9; color: #82071e; }
+
+    .diff-view {
+      width: 100%;
+      min-width: 0;
+      border-top: 1px solid #d0d7de;
+    }
+
+    .diff-file-header {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 12px;
+      border-bottom: 1px solid #d0d7de;
+      background: #f6f8fa;
+      font-size: 12px;
+    }
+
+    .diff-file-header a {
+      min-width: 0;
+      color: #0969da;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      overflow-wrap: anywhere;
+      text-decoration: none;
+    }
+
+    .diff-file-header a:hover { text-decoration: underline; }
+
+    .diff-scroll {
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+
+    .diff-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: auto;
+      background: #ffffff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      line-height: 20px;
+    }
+
+    .diff-table td { padding: 0; border: 0; vertical-align: top; }
+
+    .diff-table .diff-line-number {
+      width: 48px;
+      min-width: 48px;
+      padding: 0 10px;
+      border-right: 1px solid rgba(27, 31, 36, 0.08);
+      color: #57606a;
+      background: #f6f8fa;
+      text-align: right;
+      user-select: none;
+    }
+
+    .diff-table td.diff-line-number:first-child { position: relative; width: 64px; min-width: 64px; cursor: ns-resize; }
+
+    .review-add-button {
+      position: absolute;
+      z-index: 2;
+      top: -2px;
+      left: 2px;
+      display: grid;
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      place-items: center;
+      border: 0;
+      border-radius: 50%;
+      background: #0969da;
+      color: white;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      opacity: 0;
+    }
+
+    .diff-row:hover .review-add-button,
+    .review-add-button:focus-visible { opacity: 1; }
+    .review-add-button:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+    .diff-table .diff-row.review-selected > td.diff-line-number,
+    .diff-table .diff-row.review-selected > td.diff-code {
+      background: #fff8c5;
+      box-shadow: inset 0 1px #d4a72c, inset 0 -1px #d4a72c;
+    }
+    .diff-row.review-selected > td:first-child { box-shadow: inset 2px 0 #d4a72c, inset 0 1px #d4a72c, inset 0 -1px #d4a72c; }
+    .diff-row.review-selected > td:last-child { box-shadow: inset -2px 0 #d4a72c, inset 0 1px #d4a72c, inset 0 -1px #d4a72c; }
+    body.review-dragging .diff-table .diff-row.review-drag-preview > td.diff-line-number,
+    body.review-dragging .diff-table .diff-row.review-drag-preview > td.diff-code {
+      background: #fff8c5;
+      box-shadow: inset 0 1px #d4a72c, inset 0 -1px #d4a72c;
+    }
+    .diff-row.review-drag-preview > td:first-child { box-shadow: inset 2px 0 #d4a72c, inset 0 1px #d4a72c, inset 0 -1px #d4a72c; }
+    .diff-row.review-drag-preview > td:last-child { box-shadow: inset -2px 0 #d4a72c, inset 0 1px #d4a72c, inset 0 -1px #d4a72c; }
+    body.review-dragging, body.review-dragging * { cursor: ns-resize; user-select: none; }
+    body.review-dragging .review-add-button { opacity: 1; }
+    .diff-row.has-review-comment > .diff-code { box-shadow: inset 3px 0 #0969da; }
+    .diff-row.review-located > td { animation: review-pulse 1.6s ease-out; }
+
+    @keyframes review-pulse {
+      0%, 45% { box-shadow: inset 0 0 0 2px #0969da; }
+      100% { box-shadow: inset 0 0 0 0 transparent; }
+    }
+
+    tr.review-thread > td[colspan="3"] { padding: 0; border: 0; background: white; }
+    .review-thread-box { width: min(720px, calc(100% - 24px)); margin: 10px 12px 14px; border: 1px solid #d0d7de; border-left: 4px solid #0969da; border-radius: 6px; background: white; box-shadow: 0 2px 8px rgba(31, 35, 40, 0.08); white-space: normal; }
+    .review-thread-header { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 9px 12px; border-bottom: 1px solid #d8dee4; background: #f6f8fa; font-size: 11px; }
+    .review-thread-body { padding: 12px; }
+    .review-thread-body p { margin: 0; white-space: pre-wrap; font-family: "Avenir Next", Avenir, sans-serif; font-size: 13px; }
+    .review-thread-body details { margin-top: 10px; border-color: #d8dee4; }
+    .review-thread-body details summary { padding: 7px 10px; font-size: 11px; }
+    .review-thread-body pre { max-height: 240px; padding: 10px; border-radius: 0; font-size: 11px; }
+    .review-editor { padding: 12px; }
+    .review-editor label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 700; }
+    .review-editor textarea { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid #8c959f; border-radius: 6px; resize: vertical; font: inherit; }
+    .review-editor textarea:focus { border-color: #0969da; outline: 2px solid rgba(9, 105, 218, 0.25); }
+    .review-editor-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 5px; color: var(--muted); font-size: 10px; }
+    .review-editor-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+    .review-error { color: #cf222e; }
+
+    .diff-table .diff-code {
+      min-width: 100%;
+      padding: 0 12px;
+      white-space: pre;
+    }
+
+    .diff-marker {
+      display: inline-block;
+      width: 14px;
+      color: #57606a;
+      user-select: none;
+    }
+
+    .diff-row.addition .diff-line-number,
+    .diff-row.addition .diff-code { background: #dafbe1; }
+
+    .diff-row.deletion .diff-line-number,
+    .diff-row.deletion .diff-code { background: #ffebe9; }
+
+    .diff-row.addition .diff-marker { color: #1a7f37; }
+    .diff-row.deletion .diff-marker { color: #cf222e; }
+
+    .diff-table .diff-hunk td {
+      padding: 3px 12px;
+      color: #57606a;
+      background: #ddf4ff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .contract-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    pre {
+      margin: 0;
+      padding: 20px;
+      border-radius: var(--radius);
+      background: var(--code);
+      color: #f1f2ed;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.65;
+      overflow: auto;
+    }
+
+    .code-label {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .risk-list {
+      display: grid;
+      gap: 12px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .risk-item {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr);
+      gap: 16px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .risk-item p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+    .risk-item > div { min-width: 0; }
+
+    h2, h3, .section-summary, .flow-step, .risk-item, .group-label, .domain-summary li, .file-role,
+    .behavior-table td, .contract-table td { overflow-wrap: anywhere; }
+
+    .footer {
+      margin-top: 56px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .footer code { overflow-wrap: anywhere; }
+
+    @media (prefers-reduced-motion: no-preference) {
+      html { scroll-behavior: smooth; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ask-panel { transition: none; }
+    }
+
+    @media (max-width: 920px) {
+      .shell { display: block; }
+      .rail { position: static; width: 100%; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .rail nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .rail nav a { border-left: 0; border-bottom: 2px solid transparent; }
+      .rail-meta { display: none; }
+      main { padding-top: 32px; }
+      .flow { grid-template-columns: 1fr 1fr; }
+      .flow-step::after { display: none; }
+      .contract-layout { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 620px) {
+      main { min-width: 0; padding: 26px 16px 60px; overflow-x: hidden; }
+      .rail { padding: 20px 16px; }
+      .rail nav { grid-template-columns: 1fr 1fr; }
+      .section-head { grid-template-columns: 40px minmax(0, 1fr); }
+      .flow { grid-template-columns: 1fr; }
+      .domain-header { grid-template-columns: 1fr; gap: 12px; padding: 18px 16px; }
+      .domain-title { justify-content: space-between; }
+      .domain-groups { padding: 8px; }
+      .domain-groups > details > summary { grid-template-columns: 28px minmax(0, 1fr); }
+      .group-count { display: none; }
+      .file-summary { grid-template-columns: 14px 24px minmax(0, 1fr) auto; padding: 10px; }
+      .file-role { display: none; }
+      .diff-stat { display: none; }
+      .file-header-actions { grid-column: 3 / -1; justify-self: start; }
+      .viewed-label { display: none; }
+      .viewed-button { width: 32px; padding: 3px; }
+      .diff-file-header { align-items: flex-start; flex-direction: column; }
+      .review-thread-box { width: min(calc(100vw - 52px), 720px); }
+      .review-add-button { top: -6px; width: 32px; height: 32px; opacity: 1; }
+      .risk-item { grid-template-columns: 1fr; }
+      .behavior-table, .contract-table { table-layout: fixed; }
+      pre { max-width: 100%; }
+      .behavior-table th, .behavior-table td, .contract-table th, .contract-table td {
+        padding: 10px 8px;
+        overflow-wrap: anywhere;
+      }
+    }
+
+    @media (hover: none) and (pointer: coarse) {
+      .review-add-button { top: -6px; width: 32px; height: 32px; opacity: 1; }
+    }
+  </style></head><body data-review-commit="{{HEAD_LABEL}}">
+<div class="shell"><aside class="rail" aria-label="Review navigation"><div class="rail-brand">Review Workspace<span>{{RAIL_SUBTITLE}}</span></div><fieldset class="language-switch"><legend>Language</legend><button class="language-option" type="button" data-language="zh" aria-pressed="true">中文</button><button class="language-option" type="button" data-language="en" aria-pressed="false">English</button></fieldset><nav aria-label="Review sections">{{NAV}}</nav><div class="rail-meta">{{RAIL_META}}</div></aside><main>
+{{BEFORE_CHANGES}}
+<section id="changes"><div class="section-head"><div class="section-number">{{CHANGES_NUMBER}}</div><div><h2>代码改动</h2>{{CHANGES_SUMMARY}}</div></div><div class="file-tools"><button class="review-button" id="review-comments-toggle" type="button" aria-controls="review-comments-panel" aria-expanded="false">Review comments (<span id="review-toolbar-count">0</span>)</button><button class="review-button" id="review-copy-all" type="button" disabled>Copy all</button><output class="visually-hidden" id="review-status" aria-live="polite" aria-atomic="true"></output></div><details class="review-comments-panel" id="review-comments-panel"><summary>Review comments <span class="review-comments-count" id="review-panel-count">0</span></summary><p class="review-comments-note">评论仅保存在当前浏览器，不会同步到 GitHub；请勿写入凭据或客户数据。</p><ul class="review-comments-list" id="review-comments-list"></ul></details><div class="file-groups" id="file-groups">{{FILE_GROUPS}}</div></section>
+{{AFTER_CHANGES}}</main></div><aside class="ask-panel" id="ask-diff-panel" aria-label="Ask about this diff" aria-labelledby="ask-diff-panel-title" aria-hidden="true"><header class="ask-panel-header"><h2 class="ask-panel-title" id="ask-diff-panel-title">Ask about this diff</h2><button class="ask-panel-close" id="ask-diff-close" type="button" aria-label="Close Ask about this diff panel">×</button></header><div class="ask-panel-body"></div></aside><script>
+    const SCHEMA_VERSION = 1;
+    const BASE_REF = {{BASE_REF_JSON}};
+    const HEAD_COMMIT = document.body.dataset.reviewCommit;
+    const STORAGE_KEY = `code-review-comments:${HEAD_COMMIT}`;
+    const MAX_COMMENT_LENGTH = 2000;
+    const MAX_SELECTED_LINES = 20;
+    const MAX_CODE_BYTES = 20 * 1024;
+    const LANGUAGE_STORAGE_KEY = `code-review-language:${HEAD_COMMIT}`;
+    const languageButtons = document.querySelectorAll('[data-language]');
+    const fileGroups = document.getElementById('file-groups');
+    const commentsToggle = document.getElementById('review-comments-toggle');
+    const commentsPanel = document.getElementById('review-comments-panel');
+    const commentsList = document.getElementById('review-comments-list');
+    const toolbarCount = document.getElementById('review-toolbar-count');
+    const panelCount = document.getElementById('review-panel-count');
+    const copyAllButton = document.getElementById('review-copy-all');
+    const reviewStatus = document.getElementById('review-status');
+    const askPanel = document.getElementById('ask-diff-panel');
+    const askPanelTitle = document.getElementById('ask-diff-panel-title');
+    const askPanelClose = document.getElementById('ask-diff-close');
+    const rowMetadata = new WeakMap();
+    const rowsByFile = new Map();
+    const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    });
+    let comments = loadState().comments;
+    let selection = null;
+    let dragSelection = null;
+    let suppressNextAddClick = false;
+    let fallbackIdSequence = 0;
+    let askPanelTrigger = null;
+    let currentLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY) === 'en' ? 'en' : 'zh';
+
+    const UI_TEXT_EN = {{UI_TEXT_EN}};
+
+    const ORIGINAL_TEXT = new WeakMap();
+
+    const MESSAGES = {
+      zh: {
+        askTitle: file => `Ask about ${file}`,
+        askLabel: file => `询问这个 diff：${file}`,
+        askOpened: file => `${file} 的改动说明面板已打开。`,
+        askClosed: '改动说明面板已关闭。',
+        closeAsk: '关闭改动说明面板',
+        viewed: file => `Viewed: ${file}`,
+        notViewed: file => `Not Viewed: ${file}`,
+        viewedText: 'Viewed',
+        viewedStatus: (file, viewed) => `${file} 已标记为${viewed ? '已查看并折叠' : '未查看并展开'}。`,
+        addComment: (side, line) => `在${side === 'RIGHT' ? '新文件' : '旧文件'}第 ${line} 行添加评论`,
+        newFile: '新文件', oldFile: '旧文件', line: '第', lines: '行', visibleLines: count => `（${count} 个可见代码行）`,
+        maxLines: count => `最多选择 ${count} 行，请缩小范围。`, oversized: '所选代码超过 20 KiB，请缩小范围。',
+        addCommentTitle: '添加评论', placeholder: '留下 Review comment…', cancel: '取消', save: '添加评论', emptyBody: '请输入评论内容。', selected: label => `${label}已选中。`, saved: '评论已保存。',
+        localReviewer: '本地 Reviewer', selectedCode: (count, suffix) => `所选代码（${count} ${suffix}）`, oneLine: '行', manyLines: '行', remove: '删除', locate: '定位',
+        noComments: '暂无 Review comments', unresolved: ' · 无法定位', confirmDelete: '确定要删除这条本地审查评论吗？', deleted: '评论已删除。', cannotLocate: '无法在当前 diff 中定位这条评论。', located: (file, label) => `${file} ${label} 已定位。`,
+        copied: '已复制到剪贴板。', copyFailed: '无法复制，请检查浏览器剪贴板权限。', storageFailed: '本地存储失败。评论仅保留在当前页面，请立即复制备份。', commentsLabel: count => `Review comments, ${count} total`, commentCount: count => `${count} 条评论`
+      },
+      en: {
+        askTitle: file => `Ask about ${file}`, askLabel: file => `Ask about this diff: ${file}`, askOpened: file => `Ask about ${file} panel opened.`, askClosed: 'Ask about this diff panel closed.', closeAsk: 'Close Ask about this diff panel',
+        viewed: file => `Viewed: ${file}`, notViewed: file => `Not Viewed: ${file}`, viewedText: 'Viewed', viewedStatus: (file, viewed) => `${file} marked ${viewed ? 'viewed and collapsed' : 'not viewed and expanded'}.`,
+        addComment: (side, line) => `Add a comment on ${side === 'RIGHT' ? 'new' : 'old'} line ${line}`, newFile: 'New file', oldFile: 'Old file', line: 'Line ', lines: '', visibleLines: count => ` (${count} visible lines)`,
+        maxLines: count => `Select at most ${count} lines.`, oversized: 'Selected code exceeds 20 KiB. Select a smaller range.', addCommentTitle: 'Add comment', placeholder: 'Leave a review comment…', cancel: 'Cancel', save: 'Add comment', emptyBody: 'Enter a comment.', selected: label => `${label} selected.`, saved: 'Comment saved.',
+        localReviewer: 'Local reviewer', selectedCode: (count, suffix) => `Selected code (${count} ${suffix})`, oneLine: 'line', manyLines: 'lines', remove: 'Delete', locate: 'Locate', noComments: 'No review comments', unresolved: ' · Unable to locate', confirmDelete: 'Delete this local review comment?', deleted: 'Comment deleted.', cannotLocate: 'Unable to locate this comment in the current diff.', located: (file, label) => `${file} ${label} located.`, copied: 'Copied to clipboard.', copyFailed: 'Unable to copy. Check browser clipboard permissions.', storageFailed: 'Local storage failed. Comments exist only on this page; copy them now.', commentsLabel: count => `Review comments, ${count} total`, commentCount: count => `${count} ${count === 1 ? 'comment' : 'comments'}`
+      }
+    };
+
+    function msg(key, ...args) {
+      const value = MESSAGES[currentLanguage][key];
+      return typeof value === 'function' ? value(...args) : value;
+    }
+
+    function translated(text) {
+      return currentLanguage === 'en' ? (UI_TEXT_EN[text] ?? text) : text;
+    }
+
+    function translateTextNodes(root) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (node.parentElement?.closest('.diff-table, .diff-file-header, .file-path, .ask-panel, .review-thread')) continue;
+        if (!ORIGINAL_TEXT.has(node)) ORIGINAL_TEXT.set(node, node.textContent);
+        const original = ORIGINAL_TEXT.get(node);
+        const trimmed = original.trim();
+        if (!trimmed) continue;
+        const replacement = translated(trimmed);
+        node.textContent = original.replace(trimmed, replacement);
+      }
+    }
+
+    function applyLanguage(language) {
+      currentLanguage = language === 'en' ? 'en' : 'zh';
+      document.documentElement.lang = currentLanguage === 'en' ? 'en' : 'zh-CN';
+      localStorage.setItem(LANGUAGE_STORAGE_KEY, currentLanguage);
+      languageButtons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.language === currentLanguage)));
+      translateTextNodes(document.querySelector('.shell'));
+      document.querySelector('.language-switch').setAttribute('aria-label', currentLanguage === 'en' ? 'Language' : '语言');
+      document.querySelector('.rail').setAttribute('aria-label', currentLanguage === 'en' ? 'Review navigation' : '审查导航');
+      document.querySelector('.rail nav').setAttribute('aria-label', currentLanguage === 'en' ? 'Review sections' : '审查章节');
+      commentsToggle.firstChild.textContent = 'Review comments (';
+      copyAllButton.textContent = 'Copy all';
+      commentsPanel.querySelector('summary').firstChild.textContent = 'Review comments ';
+      commentsPanel.querySelector('.review-comments-note').textContent = currentLanguage === 'en' ? 'Comments are stored only in this browser and are not synchronized to GitHub. Do not enter credentials or customer data.' : '评论仅保存在当前浏览器，不会同步到 GitHub；请勿写入凭据或客户数据。';
+      askPanel.setAttribute('aria-label', currentLanguage === 'en' ? 'Ask about this diff' : '询问这个 diff');
+      askPanelClose.setAttribute('aria-label', msg('closeAsk'));
+      reviewStatus.textContent = '';
+      refreshGeneratedControls();
+      renderComments();
+      if (selection) openEditor(selection.target, true, selection.trigger);
+      if (askPanel.classList.contains('open') && askPanelTrigger) openAskPanel(askPanelTrigger, false);
+    }
+
+    function refreshGeneratedControls() {
+      fileGroups.querySelectorAll('.file-diff').forEach(fileDetails => {
+        const fileName = fileDetails.querySelector('.file-path').textContent.trim();
+        const askButton = fileDetails.querySelector('.ask-diff-button');
+        const viewedButton = fileDetails.querySelector('.viewed-button');
+        askButton.title = currentLanguage === 'en' ? 'Ask about this diff' : '询问这个 diff';
+        askButton.setAttribute('aria-label', msg('askLabel', fileName));
+        viewedButton.querySelector('.viewed-label').textContent = msg('viewedText');
+        viewedButton.setAttribute('aria-label', viewedButton.getAttribute('aria-pressed') === 'true' ? msg('viewed', fileName) : msg('notViewed', fileName));
+      });
+      rowsByFile.forEach(rows => rows.forEach(item => item.row.querySelector('.review-add-button')?.setAttribute('aria-label', msg('addComment', item.side, item.line))));
+    }
+
+    const FILE_DIFF_GUIDES = {{FILE_DIFF_GUIDES}};
+
+    const FILE_DIFF_GUIDES_EN = {{FILE_DIFF_GUIDES_EN}};
+
+    function renderAskPanelContent(filePath) {
+      const guide = FILE_DIFF_GUIDES[filePath];
+      askPanel.querySelector('.ask-panel-body').replaceChildren();
+      const body = askPanel.querySelector('.ask-panel-body');
+      if (!guide) return;
+
+      guide.units.forEach((unit, index) => {
+        const english = FILE_DIFF_GUIDES_EN[filePath]?.[index];
+        const changeText = currentLanguage === 'en' && english ? english[0] : unit.change;
+        const reasonText = currentLanguage === 'en' && english ? english[1] : unit.reason;
+        const section = createElement('section', 'ask-unit');
+        const heading = createElement('h3');
+        heading.appendChild(createElement('span', 'ask-unit-name', unit.name));
+        const change = createElement('p', 'ask-unit-content ask-unit-change', changeText);
+        change.setAttribute('aria-label', currentLanguage === 'en' ? 'What changed' : '改了什么');
+        const reason = createElement('p', 'ask-unit-content ask-unit-reason', reasonText);
+        reason.setAttribute('aria-label', currentLanguage === 'en' ? 'Why' : '为什么');
+        section.append(heading, change, reason);
+        body.appendChild(section);
+      });
+    }
+
+    function announce(message) {
+      reviewStatus.textContent = '';
+      requestAnimationFrame(() => { reviewStatus.textContent = message; });
+    }
+
+    function loadState() {
+      const emptyState = { schemaVersion: SCHEMA_VERSION, baseRef: BASE_REF, headCommit: HEAD_COMMIT, comments: [] };
+      try {
+        const value = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
+        let records = null;
+        if (Array.isArray(value)) {
+          records = value;
+        } else if (value?.schemaVersion === SCHEMA_VERSION && Array.isArray(value.comments)) {
+          records = value.comments;
+        }
+        return records ? { ...emptyState, comments: records.filter(record => record?.id && record?.filePath) } : emptyState;
+      } catch {
+        return emptyState;
+      }
+    }
+
+    function persist() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          schemaVersion: SCHEMA_VERSION,
+          baseRef: BASE_REF,
+          headCommit: HEAD_COMMIT,
+          comments,
+        }));
+        return true;
+      } catch {
+        announce(msg('storageFailed'));
+        return false;
+      }
+    }
+
+    function createElement(tag, className, text) {
+      const element = document.createElement(tag);
+      if (className) element.className = className;
+      if (text !== undefined) element.textContent = text;
+      return element;
+    }
+
+    function rawCode(row) {
+      const code = row.querySelector('.diff-code').cloneNode(true);
+      code.querySelector('.diff-marker')?.remove();
+      return code.textContent.replace(/\r\n?/g, '\n');
+    }
+
+    function initializeFileHeaderControls() {
+      fileGroups.querySelectorAll('.file-diff').forEach(fileDetails => {
+        const summary = fileDetails.querySelector('.file-summary');
+        const fileName = summary.querySelector('.file-path').textContent.trim();
+        const actions = createElement('span', 'file-header-actions');
+
+        const askButton = createElement('button', 'file-header-button ask-diff-button', '✦');
+        askButton.type = 'button';
+        askButton.dataset.fileAction = 'ask-diff';
+        askButton.title = currentLanguage === 'en' ? 'Ask about this diff' : '询问这个 diff';
+        askButton.setAttribute('aria-label', msg('askLabel', fileName));
+
+        const viewedButton = createElement('button', 'file-header-button viewed-button');
+        viewedButton.type = 'button';
+        viewedButton.dataset.fileAction = 'toggle-viewed';
+        viewedButton.setAttribute('aria-pressed', 'false');
+        viewedButton.setAttribute('aria-label', msg('notViewed', fileName));
+        const viewedBox = createElement('span', 'viewed-box');
+        viewedBox.setAttribute('aria-hidden', 'true');
+        viewedBox.appendChild(createElement('span', 'viewed-check', '✓'));
+        viewedButton.append(viewedBox, createElement('span', 'viewed-label', msg('viewedText')));
+
+        actions.append(askButton, viewedButton);
+        summary.appendChild(actions);
+      });
+    }
+
+    function openAskPanel(trigger, focusClose = true) {
+      const fileName = trigger.closest('.file-summary').querySelector('.file-path').textContent.trim();
+      const filePath = trigger.closest('.file').querySelector('.diff-file-header a').textContent.trim();
+      askPanelTrigger = trigger;
+      askPanelTitle.textContent = msg('askTitle', fileName);
+      renderAskPanelContent(filePath);
+      askPanel.classList.add('open');
+      askPanel.setAttribute('aria-hidden', 'false');
+      if (focusClose) askPanelClose.focus();
+      announce(msg('askOpened', fileName));
+    }
+
+    function closeAskPanel() {
+      if (!askPanel.classList.contains('open')) return;
+      askPanel.classList.remove('open');
+      askPanel.setAttribute('aria-hidden', 'true');
+      const trigger = askPanelTrigger;
+      askPanelTrigger = null;
+      trigger?.focus({ preventScroll: true });
+      announce(msg('askClosed'));
+    }
+
+    function initializeDiffRows() {
+      fileGroups.querySelectorAll('.file').forEach(file => {
+        const filePath = file.querySelector('.diff-file-header a').textContent.trim();
+        const rows = [];
+        let hunk = '';
+        file.querySelectorAll('.diff-table tbody tr').forEach(row => {
+          if (row.classList.contains('diff-hunk')) {
+            hunk = row.textContent.trim();
+            return;
+          }
+          if (!row.classList.contains('diff-row')) return;
+          const oldLine = Number(row.cells[0].textContent.trim()) || null;
+          const newLine = Number(row.cells[1].textContent.trim()) || null;
+          const side = row.classList.contains('deletion') ? 'LEFT' : 'RIGHT';
+          const line = side === 'LEFT' ? oldLine : newLine;
+          if (!line) return;
+          const metadata = { row, file, filePath, hunk, side, line, oldLine, newLine, code: rawCode(row) };
+          rowMetadata.set(row, metadata);
+          rows.push(metadata);
+
+          const button = createElement('button', 'review-add-button', '+');
+          button.type = 'button';
+          button.dataset.reviewLine = String(line);
+          button.setAttribute('aria-label', msg('addComment', side, line));
+          row.cells[0].appendChild(button);
+        });
+        rowsByFile.set(filePath, rows);
+      });
+    }
+
+
+    function rangeLabel(record) {
+      const lineSuffix = currentLanguage === 'zh' ? ` ${msg('lines')}` : '';
+      const lineRange = record.startLine === record.endLine ? String(record.startLine) : `${record.startLine}–${record.endLine}`;
+      const lineText = `${msg('line')}${lineRange}${lineSuffix}`;
+      const numericSpan = record.endLine - record.startLine + 1;
+      const visibleLineText = record.selectedLineCount && record.selectedLineCount < numericSpan ? msg('visibleLines', record.selectedLineCount) : '';
+      return `${record.side === 'RIGHT' ? msg('newFile') : msg('oldFile')} · ${lineText}${visibleLineText}`;
+    }
+
+    function rowsForRange(anchor, target) {
+      if (anchor.filePath !== target.filePath || anchor.side !== target.side) return [target];
+      const fileRows = rowsByFile.get(anchor.filePath);
+      const startIndex = fileRows.indexOf(anchor);
+      const endIndex = fileRows.indexOf(target);
+      const [from, to] = startIndex <= endIndex ? [startIndex, endIndex] : [endIndex, startIndex];
+      return fileRows.slice(from, to + 1).filter(item => item.side === anchor.side);
+    }
+
+    function clearDragPreview() {
+      fileGroups.querySelectorAll('.diff-row.review-drag-preview').forEach(row => row.classList.remove('review-drag-preview'));
+    }
+
+    function previewDragRange(target) {
+      if (!dragSelection) return;
+      const selected = rowsForRange(dragSelection.anchor, target);
+      if (selected.length > MAX_SELECTED_LINES) {
+        announce(msg('maxLines', MAX_SELECTED_LINES));
+        return;
+      }
+      clearDragPreview();
+      selected.forEach(item => item.row.classList.add('review-drag-preview'));
+      dragSelection.target = target;
+      dragSelection.rows = selected;
+      dragSelection.moved = selected.length > 1;
+    }
+
+    function metadataAtPoint(clientX, clientY) {
+      const row = document.elementFromPoint(clientX, clientY)?.closest('.diff-row');
+      const metadata = row ? rowMetadata.get(row) : null;
+      if (!metadata || !dragSelection) return null;
+      const anchor = dragSelection.anchor;
+      return metadata.filePath === anchor.filePath && metadata.side === anchor.side ? metadata : null;
+    }
+
+    function autoScrollForPointer(clientY) {
+      const edge = 56;
+      if (clientY < edge) window.scrollBy(0, -Math.min(24, edge - clientY));
+      if (clientY > window.innerHeight - edge) window.scrollBy(0, Math.min(24, clientY - (window.innerHeight - edge)));
+    }
+
+    function startPointerDrag(event, button) {
+      if (event.button !== 0 || event.shiftKey) return;
+      const anchor = rowMetadata.get(button.closest('.diff-row'));
+      if (!anchor) return;
+      event.preventDefault();
+      clearDraft(false);
+      dragSelection = { anchor, target: anchor, rows: [anchor], trigger: button, moved: false, pointerId: event.pointerId };
+      document.body.classList.add('review-dragging');
+      button.setPointerCapture?.(event.pointerId);
+      previewDragRange(anchor);
+    }
+
+    function movePointerDrag(event) {
+      if (!dragSelection || event.pointerId !== dragSelection.pointerId) return;
+      event.preventDefault();
+      autoScrollForPointer(event.clientY);
+      const target = metadataAtPoint(event.clientX, event.clientY);
+      if (target) previewDragRange(target);
+    }
+
+    function finishPointerDrag(event) {
+      if (!dragSelection || event.pointerId !== dragSelection.pointerId) return;
+      event.preventDefault();
+      const completed = dragSelection;
+      dragSelection = null;
+      document.body.classList.remove('review-dragging');
+      clearDragPreview();
+      suppressNextAddClick = true;
+      setTimeout(() => { suppressNextAddClick = false; }, 0);
+      selection = { anchor: completed.anchor, target: completed.anchor, rows: [completed.anchor], trigger: completed.trigger };
+      openEditor(completed.target, completed.rows.length > 1, completed.trigger);
+    }
+
+    function cancelPointerDrag(event) {
+      if (!dragSelection || (event.pointerId !== undefined && event.pointerId !== dragSelection.pointerId)) return;
+      dragSelection = null;
+      document.body.classList.remove('review-dragging');
+      clearDragPreview();
+    }
+
+    function clearDraft(restoreFocus = true) {
+      const trigger = selection?.trigger;
+      document.querySelector('.review-thread.draft')?.remove();
+      fileGroups.querySelectorAll('.diff-row.review-selected').forEach(row => row.classList.remove('review-selected'));
+      selection = null;
+      if (restoreFocus) trigger?.focus({ preventScroll: true });
+    }
+
+    function openEditor(target, extendRange, trigger) {
+      const existingDraft = extendRange ? document.querySelector('.review-editor textarea')?.value || '' : '';
+      const anchor = extendRange && selection ? selection.anchor : target;
+      const selected = extendRange && selection ? rowsForRange(anchor, target) : [target];
+      if (selected.length > MAX_SELECTED_LINES) {
+        announce(msg('maxLines', MAX_SELECTED_LINES));
+        return;
+      }
+      const code = selected.map(item => item.code).join('\n');
+      if (new TextEncoder().encode(code).byteLength > MAX_CODE_BYTES) {
+        announce(msg('oversized'));
+        return;
+      }
+
+      document.querySelector('.review-thread.draft')?.remove();
+      fileGroups.querySelectorAll('.diff-row.review-selected').forEach(row => row.classList.remove('review-selected'));
+      selected.forEach(item => item.row.classList.add('review-selected'));
+      selection = { anchor, target, rows: selected, trigger: selection?.trigger || trigger };
+
+      const startLine = Math.min(...selected.map(item => item.line));
+      const endLine = Math.max(...selected.map(item => item.line));
+      const threadRow = createElement('tr', 'review-thread draft');
+      const cell = document.createElement('td');
+      cell.colSpan = 3;
+      const box = createElement('div', 'review-thread-box review-editor');
+      const visibleLineNote = selected.length > 1 ? msg('visibleLines', selected.length) : '';
+      const label = createElement('label', '', `${msg('addCommentTitle')} · ${rangeLabel({ side: target.side, startLine, endLine })}${visibleLineNote}`);
+      const textarea = document.createElement('textarea');
+      textarea.id = 'review-comment-draft';
+      textarea.rows = 4;
+      textarea.maxLength = MAX_COMMENT_LENGTH;
+      textarea.spellcheck = true;
+      textarea.placeholder = msg('placeholder');
+      textarea.value = existingDraft;
+      label.htmlFor = textarea.id;
+      const meta = createElement('div', 'review-editor-meta');
+      const error = createElement('span', 'review-error');
+      const counter = createElement('span', '', `${textarea.value.length}/${MAX_COMMENT_LENGTH}`);
+      meta.append(error, counter);
+      const actions = createElement('div', 'review-editor-actions');
+      const cancel = createElement('button', 'review-button', msg('cancel'));
+      cancel.type = 'button';
+      cancel.dataset.reviewAction = 'cancel-draft';
+      const save = createElement('button', 'review-button primary', msg('save'));
+      save.type = 'button';
+      save.dataset.reviewAction = 'save-draft';
+      actions.append(cancel, save);
+      box.append(label, textarea, meta, actions);
+      cell.appendChild(box);
+      threadRow.appendChild(cell);
+      selected.at(-1).row.after(threadRow);
+
+      textarea.addEventListener('input', () => { counter.textContent = `${textarea.value.length}/${MAX_COMMENT_LENGTH}`; error.textContent = ''; });
+      textarea.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          clearDraft();
+        } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.isComposing) {
+          event.preventDefault();
+          saveComment(save, error);
+        }
+      });
+      textarea.focus();
+      announce(msg('selected', rangeLabel({ side: target.side, startLine, endLine })));
+    }
+
+    function contextFor(rows, selected) {
+      const first = rows.indexOf(selected[0]);
+      const last = rows.indexOf(selected.at(-1));
+      return {
+        before: rows.slice(Math.max(0, first - 3), first).map(item => item.code),
+        after: rows.slice(last + 1, last + 4).map(item => item.code),
+      };
+    }
+
+    function saveComment(saveButton, errorElement) {
+      if (!selection) return;
+      const textarea = document.getElementById('review-comment-draft');
+      const body = textarea.value.trim();
+      if (!body) {
+        errorElement.textContent = msg('emptyBody');
+        textarea.focus();
+        return;
+      }
+      saveButton.disabled = true;
+      const selected = selection.rows;
+      const startLine = Math.min(...selected.map(item => item.line));
+      const endLine = Math.max(...selected.map(item => item.line));
+      const fileRows = rowsByFile.get(selection.target.filePath).filter(item => item.side === selection.target.side);
+      const context = contextFor(fileRows, selected);
+      comments.push({
+        schemaVersion: SCHEMA_VERSION,
+        id: crypto.randomUUID?.() ?? `id-${Date.now()}-${fallbackIdSequence++}`,
+        baseRef: BASE_REF,
+        headCommit: HEAD_COMMIT,
+        filePath: selection.target.filePath,
+        side: selection.target.side,
+        startLine,
+        endLine,
+        selectedLineCount: selected.length,
+        originalStartLine: selection.target.side === 'LEFT' ? startLine : null,
+        originalEndLine: selection.target.side === 'LEFT' ? endLine : null,
+        hunk: selection.anchor.hunk,
+        startHunk: selected[0].hunk,
+        endHunk: selected.at(-1).hunk,
+        anchorText: selected.map(item => item.code).join('\n'),
+        code: selected.map(item => item.code),
+        contextBefore: context.before,
+        contextAfter: context.after,
+        body,
+        createdAt: new Date().toISOString(),
+      });
+      persist();
+      clearDraft(false);
+      renderComments();
+      announce(msg('saved'));
+    }
+
+    function compareComments(a, b) {
+      return a.filePath.localeCompare(b.filePath) || a.startLine - b.startLine || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+    }
+
+    function resolveComment(record) {
+      const candidates = rowsByFile.get(record.filePath) || [];
+      const exact = candidates.filter(item => item.side === record.side && item.line >= record.startLine && item.line <= record.endLine);
+      if (exact.length) return exact;
+      return candidates.filter(item => item.side === record.side && item.line >= record.startLine && item.line <= record.endLine && item.code === record.anchorText.split('\n')[item.line - record.startLine]);
+    }
+
+    function selectedCodeDisclosure(record) {
+      const details = document.createElement('details');
+      const summary = createElement('summary', '', msg('selectedCode', record.code.length, record.code.length === 1 ? msg('oneLine') : msg('manyLines')));
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      code.textContent = record.code.join('\n');
+      pre.appendChild(code);
+      details.append(summary, pre);
+      return details;
+    }
+
+    function savedThread(record) {
+      const row = createElement('tr', 'review-thread saved');
+      row.dataset.reviewCommentId = record.id;
+      const cell = document.createElement('td');
+      cell.colSpan = 3;
+      const box = createElement('div', 'review-thread-box');
+      const header = createElement('div', 'review-thread-header');
+      const identity = createElement('span', '', `${msg('localReviewer')} · ${dateFormatter.format(new Date(record.createdAt))}`);
+      const location = createElement('span', 'review-comment-location', rangeLabel(record));
+      header.append(identity, location);
+      const body = createElement('div', 'review-thread-body');
+      body.append(createElement('p', '', record.body), selectedCodeDisclosure(record));
+      const actions = createElement('div', 'review-comment-actions');
+      const remove = createElement('button', 'review-button danger', msg('remove'));
+      remove.type = 'button';
+      remove.dataset.reviewAction = 'delete';
+      remove.dataset.commentId = record.id;
+      actions.appendChild(remove);
+      body.appendChild(actions);
+      box.append(header, body);
+      cell.appendChild(box);
+      row.appendChild(cell);
+      return row;
+    }
+
+    function updateFileBadges() {
+      fileGroups.querySelectorAll('.file-comment-count').forEach(badge => badge.remove());
+      fileGroups.querySelectorAll('.file').forEach(file => {
+        const filePath = file.querySelector('.diff-file-header a').textContent.trim();
+        const count = comments.filter(comment => comment.filePath === filePath).length;
+        if (!count) return;
+        const badge = createElement('span', 'file-comment-count', msg('commentCount', count));
+        file.querySelector('.file-summary .diff-stat').before(badge);
+      });
+    }
+
+    function renderPanel() {
+      commentsList.replaceChildren();
+      const sorted = [...comments].sort(compareComments);
+      if (!sorted.length) {
+        commentsList.appendChild(createElement('li', 'review-empty', msg('noComments')));
+      }
+      sorted.forEach(record => {
+        const item = document.createElement('li');
+        const header = createElement('div', 'review-comment-list-header');
+        const resolved = resolveComment(record);
+        const location = createElement('span', 'review-comment-location', `${record.filePath}:${rangeLabel(record)}${resolved.length ? '' : msg('unresolved')}`);
+        const time = createElement('time', '', dateFormatter.format(new Date(record.createdAt)));
+        time.dateTime = record.createdAt;
+        header.append(location, time);
+        item.append(header, createElement('p', 'review-comment-body', record.body));
+        const preview = createElement('code', 'review-comment-preview', record.code.join(' ').replace(/\s+/g, ' '));
+        item.appendChild(preview);
+        const actions = createElement('div', 'review-comment-actions');
+        const locate = createElement('button', 'review-button', msg('locate'));
+        locate.type = 'button';
+        locate.dataset.reviewAction = 'locate';
+        locate.dataset.commentId = record.id;
+        const remove = createElement('button', 'review-button danger', msg('remove'));
+        remove.type = 'button';
+        remove.dataset.reviewAction = 'delete';
+        remove.dataset.commentId = record.id;
+        actions.append(locate, remove);
+        item.appendChild(actions);
+        commentsList.appendChild(item);
+      });
+    }
+
+    function renderComments() {
+      document.querySelectorAll('.review-thread.saved').forEach(row => row.remove());
+      fileGroups.querySelectorAll('.diff-row.has-review-comment').forEach(row => row.classList.remove('has-review-comment'));
+      const insertionCursor = new Map();
+      [...comments].sort(compareComments).forEach(record => {
+        const resolved = resolveComment(record);
+        if (!resolved.length) return;
+        resolved.forEach(item => item.row.classList.add('has-review-comment'));
+        const anchor = resolved.at(-1).row;
+        const cursor = insertionCursor.get(anchor) || anchor;
+        const thread = savedThread(record);
+        cursor.after(thread);
+        insertionCursor.set(anchor, thread);
+      });
+      const count = comments.length;
+      toolbarCount.textContent = String(count);
+      panelCount.textContent = String(count);
+      copyAllButton.disabled = count === 0;
+      commentsToggle.setAttribute('aria-label', msg('commentsLabel', count));
+      updateFileBadges();
+      renderPanel();
+    }
+
+    function deleteComment(id, focusFallback) {
+      if (!confirm(msg('confirmDelete'))) return;
+      const record = comments.find(comment => comment.id === id);
+      comments = comments.filter(comment => comment.id !== id);
+      persist();
+      renderComments();
+      const resolved = record ? resolveComment(record) : [];
+      (resolved[0]?.row.querySelector('.review-add-button') || focusFallback || commentsToggle).focus({ preventScroll: true });
+      announce(msg('deleted'));
+    }
+
+    function locateComment(id) {
+      const record = comments.find(comment => comment.id === id);
+      if (!record) return;
+      const resolved = resolveComment(record);
+      if (!resolved.length) {
+        announce(msg('cannotLocate'));
+        return;
+      }
+      const row = resolved[0].row;
+      row.closest('.logic-group').open = true;
+      row.closest('.file-diff').open = true;
+      const thread = document.querySelector(`.review-thread[data-review-comment-id="${CSS.escape(id)}"]`);
+      const target = thread || row;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      resolved.forEach(item => {
+        item.row.classList.add('review-located');
+        setTimeout(() => item.row.classList.remove('review-located'), 1800);
+      });
+      row.querySelector('.review-add-button')?.focus({ preventScroll: true });
+      announce(msg('located', record.filePath, rangeLabel(record)));
+    }
+
+    function languageFor(filePath) {
+      if (filePath.endsWith('.tfvars') || filePath.endsWith('.tf')) return 'hcl';
+      if (filePath.endsWith('.kt')) return 'kotlin';
+      if (filePath.endsWith('.js')) return 'javascript';
+      if (filePath.endsWith('.json')) return 'json';
+      if (filePath.endsWith('.properties')) return 'properties';
+      return '';
+    }
+
+    function fenceFor(code) {
+      const runs = code.match(/`+/g) || [];
+      return '`'.repeat(Math.max(3, ...runs.map(run => run.length + 1)));
+    }
+
+    function exportMarkdown() {
+      const sections = [...comments].sort(compareComments).map((record, index) => {
+        const code = record.code.join('\n');
+        const fence = fenceFor(code);
+        const side = record.side === 'RIGHT' ? 'New (RIGHT)' : 'Old (LEFT)';
+        const lines = record.startLine === record.endLine ? `L${record.startLine}` : `L${record.startLine}-L${record.endLine}`;
+        return [
+          `### ${index + 1}. ${record.filePath}:${lines}`,
+          '',
+          `- **Commit:** \`${HEAD_COMMIT}\``,
+          `- **File:** \`${record.filePath}\``,
+          `- **Location:** ${side}, \`${lines}\``,
+          '',
+          `${fence}${languageFor(record.filePath)}`,
+          code,
+          fence,
+          '',
+          '**Comment**',
+          '',
+          record.body.replace(/\r\n?/g, '\n'),
+        ].join('\n');
+      });
+      return `## PR Review Comments\n\n${sections.join('\n\n---\n\n')}`;
+    }
+
+    async function copyText(text) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          Object.assign(textarea.style, { position: 'fixed', opacity: '0' });
+          document.body.appendChild(textarea);
+          textarea.select();
+          if (!document.execCommand('copy')) throw new Error('Copy failed');
+          textarea.remove();
+        }
+        announce(msg('copied'));
+      } catch {
+        announce(msg('copyFailed'));
+      }
+    }
+
+    function handleFileHeaderAction(event) {
+      const fileAction = event.target.closest('[data-file-action]');
+      if (!fileAction) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      const fileDetails = fileAction.closest('.file-diff');
+      const fileName = fileDetails.querySelector('.file-path').textContent.trim();
+      if (fileAction.dataset.fileAction === 'ask-diff') openAskPanel(fileAction);
+      if (fileAction.dataset.fileAction === 'toggle-viewed') {
+        const viewed = fileAction.getAttribute('aria-pressed') !== 'true';
+        fileAction.setAttribute('aria-pressed', String(viewed));
+        fileAction.setAttribute('aria-label', viewed ? msg('viewed', fileName) : msg('notViewed', fileName));
+        fileDetails.open = !viewed;
+        announce(msg('viewedStatus', fileName, viewed));
+      }
+      return true;
+    }
+
+    function handleReviewAdd(event) {
+      const addButton = event.target.closest('.review-add-button');
+      if (!addButton) return false;
+      if (suppressNextAddClick) {
+        event.preventDefault();
+        return true;
+      }
+      const target = rowMetadata.get(addButton.closest('.diff-row'));
+      const canExtend = event.shiftKey && selection && selection.anchor.filePath === target.filePath && selection.anchor.side === target.side;
+      openEditor(target, canExtend, addButton);
+      return true;
+    }
+
+    function handleInlineReviewAction(event) {
+      const action = event.target.closest('[data-review-action]');
+      if (!action) return;
+      if (action.dataset.reviewAction === 'cancel-draft') clearDraft();
+      if (action.dataset.reviewAction === 'save-draft') saveComment(action, action.closest('.review-editor').querySelector('.review-error'));
+      if (action.dataset.reviewAction === 'delete') deleteComment(action.dataset.commentId, action);
+    }
+
+    fileGroups.addEventListener('pointerdown', event => {
+      const firstGutter = event.target.closest('.diff-row > .diff-line-number:first-child');
+      const addButton = firstGutter?.querySelector('.review-add-button');
+      if (addButton) startPointerDrag(event, addButton);
+    });
+    fileGroups.addEventListener('pointermove', movePointerDrag);
+    fileGroups.addEventListener('pointerup', finishPointerDrag);
+    fileGroups.addEventListener('pointercancel', cancelPointerDrag);
+
+    fileGroups.addEventListener('click', event => {
+      if (handleFileHeaderAction(event)) return;
+      if (handleReviewAdd(event)) return;
+      handleInlineReviewAction(event);
+    });
+
+    commentsList.addEventListener('click', event => {
+      const action = event.target.closest('[data-review-action]');
+      if (!action) return;
+      if (action.dataset.reviewAction === 'locate') locateComment(action.dataset.commentId);
+      if (action.dataset.reviewAction === 'delete') deleteComment(action.dataset.commentId, action);
+    });
+
+    commentsToggle.addEventListener('click', () => {
+      commentsPanel.open = !commentsPanel.open;
+      commentsToggle.setAttribute('aria-expanded', String(commentsPanel.open));
+    });
+    commentsPanel.addEventListener('toggle', () => commentsToggle.setAttribute('aria-expanded', String(commentsPanel.open)));
+    copyAllButton.addEventListener('click', () => copyText(exportMarkdown()));
+    askPanelClose.addEventListener('click', closeAskPanel);
+    languageButtons.forEach(button => button.addEventListener('click', () => applyLanguage(button.dataset.language)));
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && askPanel.classList.contains('open')) {
+        event.preventDefault();
+        closeAskPanel();
+      }
+    });
+
+    initializeFileHeaderControls();
+    initializeDiffRows();
+    renderComments();
+    commentsPanel.open = comments.length > 0;
+    commentsToggle.setAttribute('aria-expanded', String(commentsPanel.open));
+    applyLanguage(currentLanguage);
+
+  </script></body></html>
