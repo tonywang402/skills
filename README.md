@@ -39,3 +39,47 @@ npx skills add tonywang402/skills --list
 ```
 
 Installation places the skill files where the selected agent can load them. To generate a review page, ask the agent to run the skill's workflow.
+
+## Usage
+
+After installation, open the target code repository in your agent and explicitly request `code-review-workspace`. The examples below are prompts for the agent, not terminal commands.
+
+**Current branch and working tree**
+
+> Use code-review-workspace to generate a code review HTML page for this branch against origin/main, including committed, staged, unstaged, and untracked changes.
+
+By default, the scope runs from the merge base of `origin/main` and `HEAD` to the final working-tree state. It can include changes made before the current conversation. Specify a narrower scope if needed.
+
+**A specific branch or commit**
+
+> Use code-review-workspace to generate a review page for the committed state of feature/example against origin/main. Exclude uncommitted working-tree changes.
+
+`--head <rev>` reviews the cumulative diff from the merge base to that revision. It does not mean only the changes introduced by that single commit relative to its parent.
+
+**A GitHub or GitHub Enterprise pull request**
+
+> Use code-review-workspace to generate an offline review page for this PR: https://github.com/OWNER/REPO/pull/123
+
+Replace the example URL with a real PR URL. PR mode uses the PR's recorded base commit and head to determine the review scope.
+
+### Generating and reading a workspace
+
+1. The agent collects the real diff, analyzes behavior before and after the changes, and writes structured explanations.
+2. The rendering script validates file coverage, grouping, and bilingual content, then produces one HTML file.
+3. The agent checks comment persistence, Markdown export, and desktop and mobile layouts in a browser. If no browser tool is available, it should report those checks as not verified.
+4. Open the HTML path from the agent's report. Read the conclusion and behavior changes first, then inspect grouped diffs, add line comments, and export feedback as Markdown.
+
+The default output is under `analysis/<ticket-or-PR-or-branch>/..._code-review.html` in the target repository. Use the exact path reported by the agent.
+
+### Requirements and boundaries
+
+| Scenario | Requirements |
+| --- | --- |
+| Local code analysis and HTML generation | A skill-capable AI agent, Git 2.25+, and Python 3.9+; the Python script uses only the standard library |
+| PR URL analysis | Additionally requires the `gh` CLI authenticated for the relevant GitHub or GitHub Enterprise host |
+| Complete browser smoke checks | A browser automation tool available to the agent, such as Playwright |
+| Reading a generated page | A browser; the page itself works offline, while external source links still require network access and repository permissions |
+
+The skill presents changes and organizes feedback. It does not replace human review, post GitHub comments, approve PRs, or modify product code. Generated pages contain real code, so inspect their contents before sharing. Comments are stored in the current browser origin's localStorage and do not automatically sync across devices. Moving the file or changing its URL may also make existing comments unavailable.
+
+See [SKILL.md](code-review-workspace/SKILL.md) for the full workflow and the [content contract](code-review-workspace/references/content-contract.md) for the page's content structure.
