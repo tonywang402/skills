@@ -83,3 +83,38 @@ The default output is under `analysis/<ticket-or-PR-or-branch>/..._code-review.h
 The skill presents changes and organizes feedback. It does not replace human review, post GitHub comments, approve PRs, or modify product code. Generated pages contain real code, so inspect their contents before sharing. Comments are stored in the current browser origin's localStorage and do not automatically sync across devices. Moving the file or changing its URL may also make existing comments unavailable.
 
 See [SKILL.md](code-review-workspace/SKILL.md) for the full workflow and the [content contract](code-review-workspace/references/content-contract.md) for the page's content structure.
+
+## Updating and removing
+
+Run these commands from the project where the skill is installed:
+
+```bash
+# List skills installed in the current project
+npx skills list
+
+# Check for updates; this does not validate skill content
+npx skills check
+
+# Update this skill in the current project
+npx skills update code-review-workspace -p
+
+# Remove it from the current project
+npx skills remove code-review-workspace
+```
+
+If you installed with `-g`, use the same scope when updating or removing:
+
+```bash
+npx skills update code-review-workspace -g
+npx skills remove code-review-workspace -g
+```
+
+Installed copies need an update after the source files change on GitHub. Removing an installed skill does not delete its source from this repository.
+
+## Maintenance and feedback
+
+When adding a skill, create a separate directory with a `SKILL.md`. Its `name` should match the directory name, and its `description` should explain both what it does and when to use it. Include `scripts/`, `references/`, and `assets/` as needed, following the [Agent Skills specification](https://agentskills.io/specification). Keep the skill list and examples in this README up to date. After publishing changes, use `npx skills add tonywang402/skills --list` to check that the remote skills can be found.
+
+When changing `code-review-workspace`, verify realistic use cases against its [instructions](code-review-workspace/SKILL.md) and [content contract](code-review-workspace/references/content-contract.md). Page changes should be checked on desktop and mobile layouts, including comment and export behavior. `skills check` does not replace these checks.
+
+Report problems in [Issues](https://github.com/tonywang402/skills/issues) with the agent, operating system and tool versions, review scope, reproduction steps, and sanitized error messages. Do not attach credentials, customer data, or code and review HTML that you are not authorized to share.
