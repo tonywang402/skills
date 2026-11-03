@@ -15,12 +15,12 @@ compatibility: >-
   Requires git 2.25+ and Python 3.9+ (standard library only); an authenticated gh CLI for the PR host
   when given a pull-request URL; a browser automation tool (e.g. Playwright) for the smoke test.
 metadata:
-  version: "1.2"
+  version: "1.3"
 ---
 
 # Code Review Workspace
 
-Produce one offline HTML page that lets reviewers grasp a change top-down, read GitHub-style diffs, open a per-file "what changed / why" panel, and leave line comments (stored in localStorage, exported with Copy all).
+Produce one offline HTML page that lets reviewers grasp a change top-down, read GitHub-style diffs, open a per-file "what changed / why" panel, and add or edit line comments (stored in localStorage, exported with Copy all).
 
 `scripts/review_workspace.py` owns everything mechanical: scope, diff, hunks, stats, statuses, HTML, validation. You own the analysis and the writing in `content.json`. Run the script as a black box (`--help` lists options) and never read `assets/review-shell.html`.
 
@@ -140,9 +140,11 @@ Fix every listed error and re-run until it prints `Rendered`. Fix warnings too, 
 4. Run `await window.__crwSmoke(phase)` for each phase in order:
    1. `seed`
    2. Reload the page and load the script again.
-   3. `verify`
-   4. `layout` at 1440×900, then `layout` again at 390×844
-   5. `cleanup`
+   3. `edit` (inline and list editing, cancel, validation, language switching, metadata and export)
+   4. Reload the page and load the script again.
+   5. `verify` (edited comment persists after reload, copy, locate and delete)
+   6. `layout` at 1440×900, then `layout` again at 390×844
+   7. `cleanup`
 5. Each phase returns `{ ok, failures, checks }`; `checks` names every verified behavior, and a layout failure names the overflowing text. After a fix: run `cleanup`, re-render, reload, and start again from `seed`.
 6. The test captures Copy all in the page and never writes to the system clipboard.
 7. Stop the server. Without any browser tool, say so in the report instead of claiming success.
@@ -158,7 +160,7 @@ Run `python3 <skill>/scripts/review_workspace.py cleanup --work <work>`. Then co
 - Pyramid: <conclusion>
   - <Domain>: 01 <group> → 02 <group> …
 - Untracked files excluded: …   ← render's Report facts
-- Smoke test: seed <✓/✗> · verify <✓/✗> (commentRestored, copyAllMarkdown, copyAllButton, locate, delete) · layout 1440×900 <✓/✗> · 390×844 <✓/✗> · cleanup <✓/✗>
+- Smoke test: seed <✓/✗> · edit <✓/✗> (inline/list, cancel, validation, metadata, export) · verify <✓/✗> (edited commentRestored, copyAllMarkdown, copyAllButton, locate, delete) · layout 1440×900 <✓/✗> · 390×844 <✓/✗> · cleanup <✓/✗>
 - Storage keys: …   ← render's Report facts
 - Inferences to confirm: <the 推断 statements, or "none">
 - Not verified: <items, or "none">

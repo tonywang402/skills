@@ -980,6 +980,7 @@
       hourCycle: 'h23',
     });
     let comments = loadState().comments;
+    let editingComment = null;
     let selection = null;
     let dragSelection = null;
     let suppressNextAddClick = false;
@@ -1005,7 +1006,7 @@
         addComment: (side, line) => `在${side === 'RIGHT' ? '新文件' : '旧文件'}第 ${line} 行添加评论`,
         newFile: '新文件', oldFile: '旧文件', line: '第', lines: '行', visibleLines: count => `（${count} 个可见代码行）`,
         maxLines: count => `最多选择 ${count} 行，请缩小范围。`, oversized: '所选代码超过 20 KiB，请缩小范围。',
-        addCommentTitle: '添加评论', placeholder: '留下 Review comment…', cancel: '取消', save: '添加评论', emptyBody: '请输入评论内容。', selected: label => `${label}已选中。`, saved: '评论已保存。',
+        addCommentTitle: '添加评论', editCommentTitle: '编辑评论', edit: '编辑', saveChanges: '保存修改', updated: '评论已更新。', tooLong: count => `评论不能超过 ${count} 个字符。`, placeholder: '留下 Review comment…', cancel: '取消', save: '添加评论', emptyBody: '请输入评论内容。', selected: label => `${label}已选中。`, saved: '评论已保存。',
         localReviewer: '本地 Reviewer', selectedCode: (count, suffix) => `所选代码（${count} ${suffix}）`, oneLine: '行', manyLines: '行', remove: '删除', locate: '定位',
         noComments: '暂无 Review comments', unresolved: ' · 无法定位', confirmDelete: '确定要删除这条本地审查评论吗？', deleted: '评论已删除。', cannotLocate: '无法在当前 diff 中定位这条评论。', located: (file, label) => `${file} ${label} 已定位。`,
         copied: '已复制到剪贴板。', copyFailed: '无法复制，请检查浏览器剪贴板权限。', storageFailed: '本地存储失败。评论仅保留在当前页面，请立即复制备份。', commentsLabel: count => `Review comments, ${count} total`, commentCount: count => `${count} 条评论`
@@ -1014,7 +1015,7 @@
         askTitle: file => `Ask about ${file}`, askLabel: file => `Ask about this diff: ${file}`, askOpened: file => `Ask about ${file} panel opened.`, askClosed: 'Ask about this diff panel closed.', closeAsk: 'Close Ask about this diff panel',
         viewed: file => `Viewed: ${file}`, notViewed: file => `Not Viewed: ${file}`, viewedText: 'Viewed', viewedStatus: (file, viewed) => `${file} marked ${viewed ? 'viewed and collapsed' : 'not viewed and expanded'}.`,
         addComment: (side, line) => `Add a comment on ${side === 'RIGHT' ? 'new' : 'old'} line ${line}`, newFile: 'New file', oldFile: 'Old file', line: 'Line ', lines: '', visibleLines: count => ` (${count} visible lines)`,
-        maxLines: count => `Select at most ${count} lines.`, oversized: 'Selected code exceeds 20 KiB. Select a smaller range.', addCommentTitle: 'Add comment', placeholder: 'Leave a review comment…', cancel: 'Cancel', save: 'Add comment', emptyBody: 'Enter a comment.', selected: label => `${label} selected.`, saved: 'Comment saved.',
+        maxLines: count => `Select at most ${count} lines.`, oversized: 'Selected code exceeds 20 KiB. Select a smaller range.', addCommentTitle: 'Add comment', editCommentTitle: 'Edit comment', edit: 'Edit', saveChanges: 'Save changes', updated: 'Comment updated.', tooLong: count => `Comments must be at most ${count} characters.`, placeholder: 'Leave a review comment…', cancel: 'Cancel', save: 'Add comment', emptyBody: 'Enter a comment.', selected: label => `${label} selected.`, saved: 'Comment saved.',
         localReviewer: 'Local reviewer', selectedCode: (count, suffix) => `Selected code (${count} ${suffix})`, oneLine: 'line', manyLines: 'lines', remove: 'Delete', locate: 'Locate', noComments: 'No review comments', unresolved: ' · Unable to locate', confirmDelete: 'Delete this local review comment?', deleted: 'Comment deleted.', cannotLocate: 'Unable to locate this comment in the current diff.', located: (file, label) => `${file} ${label} located.`, copied: 'Copied to clipboard.', copyFailed: 'Unable to copy. Check browser clipboard permissions.', storageFailed: 'Local storage failed. Comments exist only on this page; copy them now.', commentsLabel: count => `Review comments, ${count} total`, commentCount: count => `${count} ${count === 1 ? 'comment' : 'comments'}`
       }
     };
@@ -1288,6 +1289,7 @@
       if (!anchor) return;
       event.preventDefault();
       clearDraft(false);
+      clearEdit(false);
       dragSelection = { anchor, target: anchor, rows: [anchor], trigger: button, moved: false, pointerId: event.pointerId };
       document.body.classList.add('review-dragging');
       button.setPointerCapture?.(event.pointerId);
@@ -1331,6 +1333,7 @@
     }
 
     function openEditor(target, extendRange, trigger) {
+      clearEdit(false);
       const existingDraft = extendRange ? document.querySelector('.review-editor textarea')?.value || '' : '';
       const anchor = extendRange && selection ? selection.anchor : target;
       const selected = extendRange && selection ? rowsForRange(anchor, target) : [target];
@@ -1354,16 +1357,26 @@
       const threadRow = createElement('tr', 'review-thread draft');
       const cell = document.createElement('td');
       cell.colSpan = 3;
-      const box = createElement('div', 'review-thread-box review-editor');
       const visibleLineNote = selected.length > 1 ? msg('visibleLines', selected.length) : '';
-      const label = createElement('label', '', `${msg('addCommentTitle')} · ${rangeLabel({ side: target.side, startLine, endLine })}${visibleLineNote}`);
+      const box = commentEditor(`${msg('addCommentTitle')} · ${rangeLabel({ side: target.side, startLine, endLine })}${visibleLineNote}`, existingDraft);
+      box.classList.add('review-thread-box');
+      cell.appendChild(box);
+      threadRow.appendChild(cell);
+      selected.at(-1).row.after(threadRow);
+      box.querySelector('textarea').focus();
+      announce(msg('selected', rangeLabel({ side: target.side, startLine, endLine })));
+    }
+
+    function commentEditor(title, draft, editing = false) {
+      const box = createElement('div', 'review-editor');
+      const label = createElement('label', '', title);
       const textarea = document.createElement('textarea');
-      textarea.id = 'review-comment-draft';
+      textarea.id = editing ? 'review-comment-edit' : 'review-comment-draft';
       textarea.rows = 4;
       textarea.maxLength = MAX_COMMENT_LENGTH;
       textarea.spellcheck = true;
       textarea.placeholder = msg('placeholder');
-      textarea.value = existingDraft;
+      textarea.value = draft;
       label.htmlFor = textarea.id;
       const meta = createElement('div', 'review-editor-meta');
       const error = createElement('span', 'review-error');
@@ -1372,28 +1385,84 @@
       const actions = createElement('div', 'review-editor-actions');
       const cancel = createElement('button', 'review-button', msg('cancel'));
       cancel.type = 'button';
-      cancel.dataset.reviewAction = 'cancel-draft';
-      const save = createElement('button', 'review-button primary', msg('save'));
+      cancel.dataset.reviewAction = editing ? 'cancel-edit' : 'cancel-draft';
+      const save = createElement('button', 'review-button primary', msg(editing ? 'saveChanges' : 'save'));
       save.type = 'button';
-      save.dataset.reviewAction = 'save-draft';
+      save.dataset.reviewAction = editing ? 'save-edit' : 'save-draft';
       actions.append(cancel, save);
       box.append(label, textarea, meta, actions);
-      cell.appendChild(box);
-      threadRow.appendChild(cell);
-      selected.at(-1).row.after(threadRow);
-
       textarea.addEventListener('input', () => { counter.textContent = `${textarea.value.length}/${MAX_COMMENT_LENGTH}`; error.textContent = ''; });
       textarea.addEventListener('keydown', event => {
         if (event.key === 'Escape') {
           event.preventDefault();
-          clearDraft();
+          cancel.click();
         } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.isComposing) {
           event.preventDefault();
-          saveComment(save, error);
+          save.click();
         }
       });
+      return box;
+    }
+
+    function commentBody(textarea, errorElement) {
+      const body = textarea.value.trim();
+      if (!body || body.length > MAX_COMMENT_LENGTH) {
+        errorElement.textContent = body ? msg('tooLong', MAX_COMMENT_LENGTH) : msg('emptyBody');
+        textarea.focus();
+        return null;
+      }
+      return body;
+    }
+
+    function focusEditAction(id, location) {
+      const container = location === 'panel' ? commentsList : fileGroups;
+      (container.querySelector(`[data-review-action="edit"][data-comment-id="${CSS.escape(id)}"]`) || commentsToggle).focus({ preventScroll: true });
+    }
+
+    function clearEdit(restoreFocus = true) {
+      if (!editingComment) return;
+      const { id, location } = editingComment;
+      editingComment = null;
+      renderComments();
+      if (restoreFocus) focusEditAction(id, location);
+    }
+
+    function editComment(id, location) {
+      const record = comments.find(comment => comment.id === id);
+      if (!record) return;
+      clearDraft(false);
+      editingComment = { id, location, draft: record.body };
+      // Remove the previous editor before rendering so its draft cannot overwrite this one.
+      document.getElementById('review-comment-edit')?.closest('.review-editor').remove();
+      renderComments();
+      const textarea = document.getElementById('review-comment-edit');
+      for (let details = textarea.closest('details'); details; details = details.parentElement?.closest('details')) details.open = true;
       textarea.focus();
-      announce(msg('selected', rangeLabel({ side: target.side, startLine, endLine })));
+    }
+
+    function saveEditedComment(saveButton, errorElement) {
+      if (!editingComment) return;
+      const record = comments.find(comment => comment.id === editingComment.id);
+      if (!record) return;
+      const body = commentBody(document.getElementById('review-comment-edit'), errorElement);
+      if (body === null) return;
+      saveButton.disabled = true;
+      record.body = body;
+      record.updatedAt = new Date().toISOString();
+      const stored = persist();
+      const { id, location } = editingComment;
+      editingComment = null;
+      renderComments();
+      focusEditAction(id, location);
+      if (stored) announce(msg('updated'));
+    }
+
+    function editButton(record) {
+      const button = createElement('button', 'review-button', msg('edit'));
+      button.type = 'button';
+      button.dataset.reviewAction = 'edit';
+      button.dataset.commentId = record.id;
+      return button;
     }
 
     function contextFor(rows, selected) {
@@ -1408,12 +1477,8 @@
     function saveComment(saveButton, errorElement) {
       if (!selection) return;
       const textarea = document.getElementById('review-comment-draft');
-      const body = textarea.value.trim();
-      if (!body) {
-        errorElement.textContent = msg('emptyBody');
-        textarea.focus();
-        return;
-      }
+      const body = commentBody(textarea, errorElement);
+      if (body === null) return;
       saveButton.disabled = true;
       const selected = selection.rows;
       const startLine = Math.min(...selected.map(item => item.line));
@@ -1481,14 +1546,15 @@
       const location = createElement('span', 'review-comment-location', rangeLabel(record));
       header.append(identity, location);
       const body = createElement('div', 'review-thread-body');
-      body.append(createElement('p', '', record.body), selectedCodeDisclosure(record));
+      const editing = editingComment?.id === record.id && editingComment.location === 'inline';
+      body.append(editing ? commentEditor(`${msg('editCommentTitle')} · ${rangeLabel(record)}`, editingComment.draft, true) : createElement('p', '', record.body), selectedCodeDisclosure(record));
       const actions = createElement('div', 'review-comment-actions');
       const remove = createElement('button', 'review-button danger', msg('remove'));
       remove.type = 'button';
       remove.dataset.reviewAction = 'delete';
       remove.dataset.commentId = record.id;
-      actions.appendChild(remove);
-      body.appendChild(actions);
+      actions.append(editButton(record), remove);
+      if (!editing) body.appendChild(actions);
       box.append(header, body);
       cell.appendChild(box);
       row.appendChild(cell);
@@ -1520,7 +1586,8 @@
         const time = createElement('time', '', dateFormatter.format(new Date(record.createdAt)));
         time.dateTime = record.createdAt;
         header.append(location, time);
-        item.append(header, createElement('p', 'review-comment-body', record.body));
+        const editing = editingComment?.id === record.id && editingComment.location === 'panel';
+        item.append(header, editing ? commentEditor(msg('editCommentTitle'), editingComment.draft, true) : createElement('p', 'review-comment-body', record.body));
         const preview = createElement('code', 'review-comment-preview', record.code.join(' ').replace(/\s+/g, ' '));
         item.appendChild(preview);
         const actions = createElement('div', 'review-comment-actions');
@@ -1532,13 +1599,17 @@
         remove.type = 'button';
         remove.dataset.reviewAction = 'delete';
         remove.dataset.commentId = record.id;
-        actions.append(locate, remove);
+        actions.append(locate);
+        if (!editing) actions.appendChild(editButton(record));
+        actions.appendChild(remove);
         item.appendChild(actions);
         commentsList.appendChild(item);
       });
     }
 
     function renderComments() {
+      const editor = document.getElementById('review-comment-edit');
+      if (editingComment && editor) editingComment.draft = editor.value;
       document.querySelectorAll('.review-thread.saved').forEach(row => row.remove());
       fileGroups.querySelectorAll('.diff-row.has-review-comment').forEach(row => row.classList.remove('has-review-comment'));
       const insertionCursor = new Map();
@@ -1564,6 +1635,7 @@
     function deleteComment(id, focusFallback) {
       if (!confirm(msg('confirmDelete'))) return;
       const record = comments.find(comment => comment.id === id);
+      if (editingComment?.id === id) editingComment = null;
       comments = comments.filter(comment => comment.id !== id);
       persist();
       renderComments();
@@ -1688,6 +1760,9 @@
       if (!action) return;
       if (action.dataset.reviewAction === 'cancel-draft') clearDraft();
       if (action.dataset.reviewAction === 'save-draft') saveComment(action, action.closest('.review-editor').querySelector('.review-error'));
+      if (action.dataset.reviewAction === 'edit') editComment(action.dataset.commentId, 'inline');
+      if (action.dataset.reviewAction === 'cancel-edit') clearEdit();
+      if (action.dataset.reviewAction === 'save-edit') saveEditedComment(action, action.closest('.review-editor').querySelector('.review-error'));
       if (action.dataset.reviewAction === 'delete') deleteComment(action.dataset.commentId, action);
     }
 
@@ -1710,6 +1785,9 @@
       const action = event.target.closest('[data-review-action]');
       if (!action) return;
       if (action.dataset.reviewAction === 'locate') locateComment(action.dataset.commentId);
+      if (action.dataset.reviewAction === 'edit') editComment(action.dataset.commentId, 'panel');
+      if (action.dataset.reviewAction === 'cancel-edit') clearEdit();
+      if (action.dataset.reviewAction === 'save-edit') saveEditedComment(action, action.closest('.review-editor').querySelector('.review-error'));
       if (action.dataset.reviewAction === 'delete') deleteComment(action.dataset.commentId, action);
     });
 

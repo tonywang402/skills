@@ -12,7 +12,7 @@ Reusable workflows for AI coding agents. Each skill lives in its own directory, 
 
 - **Start with the big picture:** read the main conclusion, behavior changes, and technical-domain summaries organized using the Pyramid Principle.
 - **Inspect the details:** explore GitHub-style diffs and per-file explanations of what changed and why, down to individual methods, components, and tests.
-- **Organize feedback:** add line comments stored in the current browser and export them as Markdown with `Copy all`. Comments are not automatically posted to GitHub.
+- **Organize feedback:** add or edit line comments stored in the current browser and export them as Markdown with `Copy all`. Comments are not automatically posted to GitHub.
 - **Read offline:** the generated HTML uses no CDNs, external fonts, or APIs and supports switching between Chinese and English content.
 
 ## Installation
@@ -80,6 +80,8 @@ The default output is under `analysis/<ticket-or-PR-or-branch>/..._code-review.h
 | Reading a generated page | A browser; the page itself works offline, while external source links still require network access and repository permissions |
 
 The skill presents changes and organizes feedback. It does not replace human review, post GitHub comments, approve PRs, or modify product code. Generated pages contain real code, so inspect their contents before sharing. Comments are stored in the current browser origin's localStorage and do not automatically sync across devices. Moving the file or changing its URL may also make existing comments unavailable.
+
+To revise a saved comment, select **Edit** in its inline thread or in the **Review comments** list. **Save changes** (or Ctrl/Cmd+Enter) updates the same comment; **Cancel** (or Escape) discards the edit. Editing preserves the comment's code location and creation time. After updating the skill, regenerate existing review pages to get the new controls.
 
 See [SKILL.md](code-review-workspace/SKILL.md) for the full workflow and the [content contract](code-review-workspace/references/content-contract.md) for the page's content structure.
 

@@ -1,6 +1,7 @@
 // In-page smoke test for a rendered code-review workspace (no dependencies).
 // Load this file into the page (e.g. Playwright `page.addScriptTag({ path })`, or evaluate its text), then run
 //   await window.__crwSmoke('seed')    -> reload the page and load this file again
+//   await window.__crwSmoke('edit')    -> reload the page and load this file again
 //   await window.__crwSmoke('verify')
 //   await window.__crwSmoke('layout')  -> once at 1440x900 and once at 390x844
 //   await window.__crwSmoke('cleanup') -> restores this review's localStorage keys to their pre-test values
@@ -8,6 +9,7 @@
 (() => {
   const SNAPSHOT = '__crwSmokeSnapshot';
   const BODY = 'crw smoke test comment';
+  const EDITED_BODY = 'crw smoke test comment edited\nSecond line: <b>literal text</b>';
   const head = document.body.dataset.reviewCommit;
   const KEYS = [`code-review-comments:${head}`, `code-review-language:${head}`];
   const CJK_CHAR = /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
@@ -84,18 +86,85 @@
     $('[data-review-action="save-draft"]').click();
     await wait(50);
     check('commentSaved', stored().some(comment => comment.body === BODY), 'comment was not saved to localStorage');
-    return { phase: 'seed', ok: !failures.length, failures, checks, next: 'reload, load this file again, run verify' };
+    return { phase: 'seed', ok: !failures.length, failures, checks, next: 'reload, load this file again, run edit' };
+  }
+
+  async function edit() {
+    const checks = {};
+    const failures = [];
+    const check = (name, passed, message) => { checks[name] = passed; if (!passed) failures.push(message); };
+    const original = stored().find(comment => comment.body === BODY);
+    if (!original) return { phase: 'edit', ok: false, failures: ['smoke comment missing after reload (run seed first)'], checks };
+    const count = stored().length;
+    const id = CSS.escape(original.id);
+    const inlineEdit = () => $(`#file-groups [data-review-action="edit"][data-comment-id="${id}"]`);
+    const panelEdit = () => $(`#review-comments-list [data-review-action="edit"][data-comment-id="${id}"]`);
+    const bodyOf = () => stored().find(comment => comment.id === original.id)?.body;
+    const fill = text => {
+      const textarea = $('#review-comment-edit');
+      textarea.value = text;
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      return textarea;
+    };
+    const identity = record => JSON.stringify({ ...record, body: undefined, updatedAt: undefined });
+
+    check('editActions', Boolean(inlineEdit() && panelEdit()), 'Edit is missing inline or in the comment list');
+    reveal(inlineEdit());
+    inlineEdit().click();
+    check('editPrefilled', $('#review-comment-edit')?.value === BODY, 'inline Edit did not prefill the saved body');
+    fill('discard this inline draft');
+    $('[data-review-action="cancel-edit"]').click();
+    check('editCancel', !$('#review-comment-edit') && bodyOf() === BODY && document.activeElement === inlineEdit(),
+      'Cancel changed the comment or did not restore focus');
+
+    inlineEdit().click();
+    fill('   ');
+    $('[data-review-action="save-edit"]').click();
+    check('editRejectsEmpty', Boolean($('#review-comment-edit') && $('.review-editor .review-error').textContent) && bodyOf() === BODY,
+      'an empty edit was saved');
+    fill('x'.repeat(2001));
+    $('[data-review-action="save-edit"]').click();
+    check('editLengthLimit', Boolean($('#review-comment-edit') && $('.review-editor .review-error').textContent) && bodyOf() === BODY,
+      'an overlong edit was saved');
+    const inlineBody = 'updated from the inline thread';
+    fill(inlineBody).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+    check('editKeyboardSave', !$('#review-comment-edit') && bodyOf() === inlineBody, 'Ctrl+Enter did not save the inline edit');
+
+    $('#review-comments-panel').open = true;
+    panelEdit().click();
+    check('editPanelPrefilled', $('#review-comment-edit')?.value === inlineBody, 'list Edit did not load the updated body');
+    fill('discard this panel draft').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    check('editEscape', !$('#review-comment-edit') && bodyOf() === inlineBody && document.activeElement === panelEdit(),
+      'Escape changed the comment or did not restore focus');
+
+    panelEdit().click();
+    fill(EDITED_BODY);
+    $('[data-language="en"]').click();
+    check('editEnglish', $('#review-comment-edit')?.value === EDITED_BODY && $('[data-review-action="save-edit"]').textContent === 'Save changes',
+      'switching to English lost the edit draft or label');
+    $('[data-language="zh"]').click();
+    check('editDraftSurvivesLanguage', $('#review-comment-edit')?.value === EDITED_BODY, 'switching language lost the edit draft');
+    $('[data-review-action="save-edit"]').click();
+    const updated = stored().find(comment => comment.id === original.id);
+    check('editPreservesIdentity', Boolean(updated && identity(updated) === identity(original) && stored().length === count),
+      'editing changed the ID, creation time, code anchor, or comment count');
+    check('editTimestamp', Boolean(updated?.updatedAt && !Number.isNaN(Date.parse(updated.updatedAt))), 'edit timestamp was not stored');
+    check('editBothViews', $$('.review-thread.saved').some(thread => thread.textContent.includes(EDITED_BODY)) &&
+      $$('.review-comment-body', $('#review-comments-list')).some(body => body.textContent === EDITED_BODY), 'updated body is missing from a comment view');
+    check('editPlainText', !$(`.review-thread[data-review-comment-id="${id}"] .review-thread-body b`), 'edited text was interpreted as HTML');
+    check('editExport', exportMarkdown().includes(EDITED_BODY) && !exportMarkdown().includes(inlineBody), 'export does not use the latest body');
+    return { phase: 'edit', ok: !failures.length, failures, checks, next: 'reload, load this file again, run verify' };
   }
 
   async function verify() {
     const checks = {};
     const failures = [];
     const check = (name, passed, message) => { checks[name] = passed; if (!passed) failures.push(message); };
-    const record = stored().find(comment => comment.body === BODY);
-    if (!record) return { phase: 'verify', ok: false, failures: ['smoke comment missing after reload (run seed first)'], checks };
-    check('commentRestored', $$('.review-thread.saved').some(thread => thread.textContent.includes(BODY)), 'comment not restored inline after reload');
+    const record = stored().find(comment => comment.body === EDITED_BODY);
+    if (!record) return { phase: 'verify', ok: false, failures: ['edited smoke comment missing after reload (run seed and edit first)'], checks };
+    check('commentRestored', $$('.review-thread.saved').some(thread => thread.textContent.includes(EDITED_BODY)), 'edited comment not restored inline after reload');
     const markdown = exportMarkdown();
-    check('copyAllMarkdown', markdown.includes(BODY) && markdown.includes(record.filePath) && markdown.includes(record.code[0]),
+    check('copyAllMarkdown', markdown.includes(EDITED_BODY) && markdown.includes(record.filePath) && markdown.includes(record.code[0]),
       'Copy all markdown lacks the comment, file path or code');
     // Capture the Copy all payload instead of overwriting the user's system clipboard.
     let copied = null;
@@ -123,7 +192,7 @@
     } finally {
       window.confirm = originalConfirm;
     }
-    check('delete', !stored().some(comment => comment.body === BODY), 'Delete did not remove the comment');
+    check('delete', !stored().some(comment => comment.id === record.id), 'Delete did not remove the edited comment');
     return { phase: 'verify', ok: !failures.length, failures, checks };
   }
 
@@ -164,7 +233,7 @@
     return { phase: 'cleanup', ok: true, failures: [], restored: snapshot.map(([key]) => key) };
   }
 
-  const phases = { seed, verify, layout, cleanup };
+  const phases = { seed, edit, verify, layout, cleanup };
   window.__crwSmoke = async phase => {
     if (!phases[phase]) return { phase, ok: false, failures: [`unknown phase "${phase}"`] };
     try {
