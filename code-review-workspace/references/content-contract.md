@@ -2,7 +2,7 @@
 
 `render` validates `content.json` against `manifest.json` and writes nothing until every rule passes. Field names are exact; unknown keys (for example `purpose` or `review`) are rejected.
 
-Everything mechanical is generated, so it never appears in this file: diff hunks, line numbers, A/M/D/R statuses, `+/-` stats, hunk/file counts, group numbers (`01`, `02`, … per domain), navigation, rail metadata, footer, storage keys, and the page's English lookup tables.
+Everything mechanical is generated, so it never appears in this file: diff hunks, line numbers, A/M/D/R statuses, `+/-` stats, hunk/file counts, group numbers (`01`, `02`, … per domain; subgroups `01.1`, `01.2`, … per group), navigation, rail metadata, footer, storage keys, and the page's English lookup tables.
 
 Each diff shows only hunk headers and code lines. Renames, copies, mode changes, binary changes and missing final newlines have no row of their own, so describe them in the file's panel units.
 
@@ -22,7 +22,8 @@ The English view replaces each Chinese text by exact lookup, so one zh string mu
 | `flow` (optional) | 实现链路 cards, 2–5 steps | |
 | `changes.summary` | lead sentence under 代码改动 | summarizes all domains |
 | `changes.domains[].name`, `.points` | domain card title, summary chips | summarizes its groups |
-| `….groups[].title`, `.summary` | numbered logic group: short title + one-sentence reason the group exists | summarizes its files |
+| `….groups[].title`, `.summary` | numbered logic group: short title + one-sentence reason the group exists | summarizes its subgroups, or its files |
+| `….subgroups[].title`, `.summary` (optional) | numbered step inside a logic group (`01.1`, `01.2`, …): short title + one-sentence reason | summarizes its files |
 | `….files[].role` | one-line role in the file header | summarizes its units |
 | `….files[].units[]` | "Ask about this diff" panel: name, 改了什么 (green), 为什么 (red) | leaves |
 | `contract` (optional) | 数据契约 table | |
@@ -45,12 +46,13 @@ The English view replaces each Chinese text by exact lookup, so one zh string mu
       "groups": [{
         "title": T,
         "summary": T,
-        "files": [{
+        "files": [{                 // a flat group lists its files; a split group has "subgroups" instead (exactly one of the two)
           "path": "<exact path from manifest.json>",
           "role": T,
           "pairedWith": "<path>", // optional: overrides the test-pairing heuristic; also a list of paths, or null
           "units": [{ "name": "<identifier as written in code>", "change": T, "reason": T }]  // ≥ 1
         }]
+        // "subgroups": [{ "title": T, "summary": T, "files": [ /* same file objects as above */ ] }]  // ≥ 2 when present
       }]
     }]
   },
@@ -64,12 +66,12 @@ Omit `flow` when the change has no multi-step chain and `contract` when no inter
 ## Rules `render` enforces
 
 - Every file in `manifest.json` appears exactly once; no other paths.
-- A test file (`isTest`) sits in the same group as its implementation (`testOf` in the manifest, or every path in `pairedWith`), after it.
+- A test file (`isTest`) sits in the same group as its implementation (`testOf` in the manifest, or every path in `pairedWith`), after it; when the group is split, in the same subgroup.
 - A test whose implementation is not in the diff (`testOf: null`, or `"pairedWith": null` when the heuristic is wrong) belongs to the `Tests` domain. `Tests` holds only such files and is the last domain.
 - `pairedWith` may also attach a helper (fixture, mock) to the file it supports, with the same placement rule.
 - No `<TODO>` placeholders; no CJK in any `en` (outside backtick spans), `meta.*`, or domain `name`.
 - No evidence citations in any text: `path:line`, `#L12`, `L10–L20`, `Evidence:` or `证据：`. Evidence stays in `ledger.md`.
-- `points`: 1–4 per domain; `flow.steps`: 2–5; every group has ≥ 1 file, every file ≥ 1 unit.
+- `points`: 1–4 per domain; `flow.steps`: 2–5; every group has either `files` (≥ 1) or `subgroups` (≥ 2), every subgroup ≥ 1 file, every file ≥ 1 unit.
 
 Warnings do not block rendering, but fix them unless you have a reason: `conclusion.zh` longer than 90 characters (the apex should be one sentence).
 

@@ -730,15 +730,12 @@ def validate(content, manifest):
                 c.error(f'{dwhere}.name', f'duplicate domain {name!r}; merge them')
             names.append(name)
             points = [c.pair(f'{dwhere}.points[{i}]', p) for i, p in enumerate(c.items(f'{dwhere}.points', raw.get('points'), 1, 4))]
-            groups = []
-            for gi, graw in enumerate(c.items(f'{dwhere}.groups', raw.get('groups'), 1)):
-                gwhere = f'{dwhere}.groups[{gi}]'
-                if not c.keys(gwhere, graw, ('title', 'summary', 'files')):
-                    continue
-                group = {'title': c.pair(f'{gwhere}.title', graw.get('title')),
-                         'summary': c.pair(f'{gwhere}.summary', graw.get('summary')), 'files': []}
-                for fi, fraw in enumerate(c.items(f'{gwhere}.files', graw.get('files'), 1)):
-                    fwhere = f'{gwhere}.files[{fi}]'
+
+            def parse_files(where, raw_files, container, kind):
+                # container identifies the group or subgroup that holds the files; tests must share it with their implementation
+                entries = []
+                for fi, fraw in enumerate(c.items(f'{where}.files', raw_files, 1)):
+                    fwhere = f'{where}.files[{fi}]'
                     if not c.keys(fwhere, fraw, ('path', 'role', 'units'), ('pairedWith',)):
                         continue
                     path = fraw.get('path')
@@ -764,10 +761,34 @@ def validate(content, manifest):
                                           'reason': c.pair(f'{uwhere}.reason', uraw.get('reason'), ui=False)})
                     entry = {'path': path, 'role': c.pair(f'{fwhere}.role', fraw.get('role')), 'units': units}
                     test_of = by_path[path]['testOf']
-                    placement[path] = {'where': fwhere, 'domain': di, 'domainName': name, 'group': gi, 'index': fi,
+                    placement[path] = {'where': fwhere, 'domain': di, 'domainName': name, 'container': container, 'kind': kind,
+                                       'index': fi,
                                        'paired': paired_raw if 'pairedWith' in fraw else ([test_of] if test_of else None),
                                        'explicit': 'pairedWith' in fraw}
-                    group['files'].append(entry)
+                    entries.append(entry)
+                return entries
+
+            groups = []
+            for gi, graw in enumerate(c.items(f'{dwhere}.groups', raw.get('groups'), 1)):
+                gwhere = f'{dwhere}.groups[{gi}]'
+                if not c.keys(gwhere, graw, ('title', 'summary'), ('files', 'subgroups')):
+                    continue
+                group = {'title': c.pair(f'{gwhere}.title', graw.get('title')),
+                         'summary': c.pair(f'{gwhere}.summary', graw.get('summary')), 'files': [], 'subgroups': []}
+                if ('files' in graw) == ('subgroups' in graw):
+                    c.error(gwhere, 'needs exactly one of "files" (a flat group) or "subgroups" (a group split into steps)')
+                elif 'files' in graw:
+                    group['files'] = parse_files(gwhere, graw.get('files'), (di, gi), 'group')
+                else:
+                    for si, sraw in enumerate(c.items(f'{gwhere}.subgroups', graw.get('subgroups'), 2)):
+                        swhere = f'{gwhere}.subgroups[{si}]'
+                        if not c.keys(swhere, sraw, ('title', 'summary', 'files')):
+                            continue
+                        entries = parse_files(swhere, sraw.get('files'), (di, gi, si), 'subgroup')
+                        group['subgroups'].append({'title': c.pair(f'{swhere}.title', sraw.get('title')),
+                                                   'summary': c.pair(f'{swhere}.summary', sraw.get('summary')),
+                                                   'files': entries})
+                        group['files'].extend(entries)
                 groups.append(group)
             domains.append({'name': name, 'accent': DOMAIN_ACCENT.get(name, 'backend'), 'points': points, 'groups': groups})
         if TESTS_DOMAIN in names and names.index(TESTS_DOMAIN) != len(names) - 1:
@@ -791,11 +812,12 @@ def validate(content, manifest):
             target = placement.get(target_path)
             if target is None:
                 c.error(where['where'], f'pairedWith/test counterpart {target_path!r} is not placed in any group')
-            elif (target['domain'], target['group']) != (where['domain'], where['group']):
-                c.error(where['where'], f'{path} must be in the same group as {target_path} (tests sit with the implementation '
-                                        f'they verify)' + ('' if where['explicit'] else '; if this pairing is wrong, set "pairedWith"'))
+            elif target['container'] != where['container']:
+                c.error(where['where'], f'{path} must be in the same {target["kind"]} as {target_path} (tests sit with the '
+                                        f'implementation they verify)'
+                                        + ('' if where['explicit'] else '; if this pairing is wrong, set "pairedWith"'))
             elif target['index'] > where['index']:
-                c.error(where['where'], f'{path} must come after {target_path} in its group')
+                c.error(where['where'], f'{path} must come after {target_path} in its {where["kind"]}')
     if len(model.get('conclusion', ('',))[0]) > 90:
         c.warnings.append('conclusion.zh is longer than 90 characters; the apex should be one sentence')
     return model, c
@@ -852,11 +874,22 @@ def render_domains(manifest, model, hunks_by_path, out_path):
         points = ''.join(f'<li>{esc(p[0])}</li>' for p in domain['points'])
         groups = []
         for index, group in enumerate(domain['groups'], 1):
-            files = ''.join(render_file(manifest, by_path[e['path']], e, hunks_by_path[e['path']], out_path) for e in group['files'])
+            def file_list(entries):
+                return ('<ul class="files">' + ''.join(render_file(manifest, by_path[e['path']], e, hunks_by_path[e['path']], out_path)
+                                                       for e in entries) + '</ul>')
+
+            if group['subgroups']:
+                body = '<div class="logic-subgroups">' + ''.join(
+                    f'<details class="logic-subgroup" open><summary><span class="subgroup-step">{index:02d}.{sub_index}</span>'
+                    f'<span class="group-label"><strong>{esc(sub["title"][0])}</strong><small>{esc(sub["summary"][0])}</small>'
+                    f'</span><span class="group-count">{plural(len(sub["files"]), "file")}</span></summary>'
+                    f'{file_list(sub["files"])}</details>'
+                    for sub_index, sub in enumerate(group['subgroups'], 1)) + '</div>'
+            else:
+                body = file_list(group['files'])
             groups.append(f'<details class="logic-group"><summary><span class="group-step">{index:02d}</span><span class="group-label">'
                           f'<strong>{esc(group["title"][0])}</strong><small>{esc(group["summary"][0])}</small></span>'
-                          f'<span class="group-count">{plural(len(group["files"]), "file")}</span></summary>'
-                          f'<ul class="files">{files}</ul></details>')
+                          f'<span class="group-count">{plural(len(group["files"]), "file")}</span></summary>{body}</details>')
         parts.append(f'<article class="file-domain {domain["accent"]}"><header class="domain-header"><div class="domain-title">'
                      f'<h3>{esc(domain["name"])}</h3><span class="domain-count">{plural(count, "file")}</span></div>'
                      f'<ul class="domain-summary">{points}</ul></header><div class="domain-groups">{"".join(groups)}</div></article>')
@@ -1061,10 +1094,11 @@ def cmd_render(args):
     write_text(out_path, html_text)
     t = manifest['totals']
     groups = sum(len(d['groups']) for d in model['domains'])
+    subgroups = sum(len(g['subgroups']) for d in model['domains'] for g in d['groups'])
     label = manifest['headLabel']
     print(f'Rendered : {out_path}')
     print(f'Checked  : every changed file once, statuses, hunks and +/- match git; {plural(len(model["domains"]), "domain")}, '
-          f'{plural(groups, "group")}; zh/en complete')
+          f'{plural(groups, "group")}' + (f', {plural(subgroups, "subgroup")}' if subgroups else '') + '; zh/en complete')
     print('Report facts (copy into the report):')
     print(f'- Review workspace: {out_path} (file://{urllib.parse.quote(out_path)})')
     print(f'- Scope: {manifest["mode"]}; base {manifest["baseRef"]} @ {manifest["mergeBase"][:12]}; head {label}; '
