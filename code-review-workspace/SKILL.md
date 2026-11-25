@@ -86,9 +86,9 @@ The ledger feeds the whole page:
 
 First read [references/content-contract.md](references/content-contract.md): the structure you plan here is exactly the structure you will write.
 
-Levels: `conclusion` → `changes.summary` → domains (`points`) → logic groups (`title`, `summary`) → files (`role`) → panel units.
+Levels: `conclusion` → `changes.summary` → domains (`points`) → logic groups (`title`, `summary`) → subgroups (optional; `title`, `summary`) → files (`role`) → panel units.
 
-- **以上统下 — every level summarizes the level below.** Build bottom-up: units → role → group summary → domain points → changes summary → conclusion. Then read top-down: each parent abstracts all of its children (it does not list them) and claims nothing they do not support.
+- **以上统下 — every level summarizes the level below.** Build bottom-up: units → role → subgroup summary → group summary → domain points → changes summary → conclusion. Then read top-down: each parent abstracts all of its children (it does not list them) and claims nothing they do not support.
 - **归类分组 — one logical category per group.** Domains are technical domains. Use this vocabulary and order, skipping absent ones:
   - **Backend**, **Frontend**: application code plus the module's own build and dependency files (`backend/build.gradle.kts`, `frontend/package.json`, `yarn.lock`).
   - **Runtime Config**: configuration the running application reads (`application*.properties`/`.yml`, env files, flag stubs).
@@ -100,13 +100,15 @@ Levels: `conclusion` → `changes.summary` → domains (`points`) → logic grou
   A file outside any module belongs to the domain of what uses it. Add another short English name (such as `Assets`) only when nothing fits, and place it before Documentation.
 
   Inside a domain, a group holds files whose changes serve the same purpose or step, never merely the same directory. When one change crosses domains, show the chain in the `flow` section (实现链路) and keep the domains technical. No empty domains or groups; every file appears exactly once.
-- **逻辑递进 — a clear order inside every group.** Order groups within a domain, and files within a group, by one principle:
+
+  When a group holds more files than a reader takes in at a glance (roughly more than five) and they fall into two or more distinct steps — contract, orchestration, persistence, API, say — split it into `subgroups`. Each subgroup is one logical category of its own; a split group holds only subgroups, never loose files, and needs at least two of them. Keep smaller or single-step groups flat.
+- **逻辑递进 — a clear order inside every group.** Order groups within a domain, subgroups within a group, and files within a group or subgroup by one principle:
   - dependency order (contract → implementation → consumer/presentation) by default;
   - runtime flow (input → processing → output) when the change follows a request or event;
   - importance (most impactful first) for independent changes.
 
   Peers with no inherent order (six parallel client configurations, say) follow path order.
-- **Tests sit with their implementation.** A test goes in the same group, after the implementation it verifies; the same applies to deleted tests. Only tests whose implementation is not in the diff go to `Tests`, the last domain. `render` enforces collect's `[test of …]` pairing; override it with `pairedWith`, which takes one path or a list when a test verifies several files.
+- **Tests sit with their implementation.** A test goes in the same group — or the same subgroup when the group is split — after the implementation it verifies; the same applies to deleted tests. Only tests whose implementation is not in the diff go to `Tests`, the last domain. `render` enforces collect's `[test of …]` pairing; override it with `pairedWith`, which takes one path or a list when a test verifies several files.
 
 ### 4. Write content.json
 
@@ -124,7 +126,7 @@ Panel rules — the units of each file (改了什么 / 为什么):
 - **Voice**: write for a smart reader who has not read the code. Be direct, precise and concrete (types, values, branches, before → after), with enough context to stand alone. Quote code, identifiers and paths in backticks; that is the only place an `en` text may contain Chinese. No filler, no line-by-line restating of the diff.
 - **`change`** = what is different now and its observable effect. **`reason`** = why: the problem solved, the requirement, the constraint, or the risk avoided.
 
-Other text: `conclusion` is one sentence (≤ 90 Chinese characters); `role` is one short line; a group `summary` says why the group exists.
+Other text: `conclusion` is one sentence (≤ 90 Chinese characters); `role` is one short line; a group or subgroup `summary` says why it exists.
 
 ### 5. Render
 
@@ -158,7 +160,7 @@ Run `python3 <skill>/scripts/review_workspace.py cleanup --work <work>`. Then co
 - Scope: …          ← render's Report facts
 - Size: …           ← render's Report facts
 - Pyramid: <conclusion>
-  - <Domain>: 01 <group> → 02 <group> …
+  - <Domain>: 01 <group> → 02 <group> (02.1 <subgroup> → 02.2 <subgroup>) …
 - Untracked files excluded: …   ← render's Report facts
 - Smoke test: seed <✓/✗> · edit <✓/✗> (inline/list, cancel, validation, metadata, export) · verify <✓/✗> (edited commentRestored, copyAllMarkdown, copyAllButton, locate, delete) · layout 1440×900 <✓/✗> · 390×844 <✓/✗> · cleanup <✓/✗>
 - Storage keys: …   ← render's Report facts

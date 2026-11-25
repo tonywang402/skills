@@ -182,9 +182,12 @@
     check('copyAllButton', !(clipboard && window.isSecureContext) || copied === markdown, 'Copy all did not hand the exported Markdown to the clipboard');
     const id = CSS.escape(record.id);
     $('#review-comments-panel').open = true;
+    // Collapse every group, subgroup and file first so Locate has to reveal the line itself.
+    $$('#file-groups details').forEach(d => { d.open = false; });
     $(`#review-comments-list [data-review-action="locate"][data-comment-id="${id}"]`)?.click();
     await wait(100);
-    check('locate', Boolean($('.diff-row.review-located')), 'Locate did not highlight the commented line');
+    const located = $('.diff-row.review-located');
+    check('locate', Boolean(located && !located.closest('details:not([open])')), 'Locate did not reveal and highlight the commented line');
     const originalConfirm = window.confirm;
     window.confirm = () => true;
     try {
