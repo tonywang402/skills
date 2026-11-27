@@ -13,9 +13,9 @@ description: >-
   message, or apply review feedback to the code.
 compatibility: >-
   Requires git 2.25+ and Python 3.9+ (standard library only); an authenticated gh CLI for the PR host
-  when given a pull-request URL; a browser automation tool (e.g. Playwright) for the smoke test.
+  when given a pull-request URL; Node.js and Playwright (or system Chrome/Edge, or a browser tool) for the smoke test.
 metadata:
-  version: "1.3"
+  version: "1.4"
 ---
 
 # Code Review Workspace
@@ -41,9 +41,9 @@ Copy this checklist and tick it off:
 ```
 - [ ] 1. Collect the scope
 - [ ] 2. Analyze before → after per unit
-- [ ] 3. Plan the pyramid
-- [ ] 4. Write content.json
-- [ ] 5. Render until it passes
+- [ ] 3. Plan & scaffold the pyramid
+- [ ] 4. Write parts/*.json (or content.json)
+- [ ] 5. Assemble & render until it passes
 - [ ] 6. Smoke-test in a browser
 - [ ] 7. Clean up and report
 ```
@@ -52,17 +52,19 @@ Copy this checklist and tick it off:
 
 ### 1. Collect the scope
 
-Run `git -C <repo> status --porcelain --untracked-files=all` and keep the output for step 7. Then:
+Run `git -C <repo> status --porcelain --untracked-files=all` when working inside a local repository and keep the output for step 7. Then:
 
 | The user gives | Run |
 |---|---|
-| Nothing specific, in a coding session ("review my changes") | `python3 <skill>/scripts/review_workspace.py collect --repo <repo>` |
-| A commit or branch tip | `… collect --repo <repo> --head <rev>` |
+| Nothing specific, in a coding session ("review my changes") | `python3 <skill>/scripts/review_workspace.py collect --repo <repo-or-name>` |
+| A commit or branch tip | `… collect --repo <repo-or-name> --head <rev>` |
 | A PR URL (github.com or GitHub Enterprise) | `… collect --pr <url> --repo <workspace>` |
 
 - Working-tree mode diffs merge-base(origin/main, HEAD) against the final working-tree state: every branch commit plus staged, unstaged and untracked files (whether something is staged does not matter).
-- PR mode diffs the PR head against the PR's recorded base commit, exactly like its "Files changed" tab, merged PRs included. A repository that is not local is cloned (blobless) into the work directory.
-- `collect` prints the scope, commits, untracked files, every changed file with status, stats and test pairing (`[test of …]`), any `NOTE` (for example a base that could not be fetched), the work directory, and the output path. Always re-run with the same `--work`.
+- PR mode diffs the PR head against the PR's recorded base commit, exactly like its "Files changed" tab, merged PRs included.
+- **Finding locally cloned repos**: if the user does not know the exact path, pass a repo name (`--repo offer-ui` or `owner/repo`) in local mode, or let `collect --pr` scan `<workspace>`, its parent directory, common code folders (`~/Documents`, `~/code`, `~/projects`, etc.), and any `--search-root` / `CRW_REPO_ROOTS` automatically. When a local clone cannot fetch or has shallow history, PR mode falls back to a temporary blobless clone. Use `locate --pr <url>` or `locate --name <repo>` to inspect candidates without modifying anything.
+- When `collect --pr` is invoked from a separate analysis workspace (e.g. a notes repo with `analysis/`) and finds the code repo elsewhere on disk, the output HTML still lands in that workspace's `analysis/` directory so the discovered code repo stays clean.
+- `collect` prints the scope, commits, untracked files, every changed file with status, stats and test pairing (`[test of …]`), any `NOTE`, the work directory, and the output path. `manifest.json` also records `patchLines: [start, end]` per file. Always re-run with the same `--work`.
 - `collect` stops before reading any untracked file that looks like a secret (`.env*`, keys, credential files). Re-run with `--exclude '<glob>'`; use `--allow '<glob>'` only after the user confirms the file is safe to show.
 - Also inspect "Untracked included". Leave out, with `--exclude`, files the user clearly does not mean to ship: build output, logs, `tmp*` files, editor or OS files, personal notes. When unsure, ask the user.
 - If `gh` reports an authentication error, ask the user to run `gh auth login --hostname <host>` themselves. Never handle tokens.
@@ -71,7 +73,7 @@ Run `git -C <repo> status --porcelain --untracked-files=all` and keep the output
 
 For each changed file, in dependency order (contracts and types → implementation → consumers → tests):
 
-1. Read its section of `<work>/diff.patch`. For a large patch, `grep -n '^diff --git' <work>/diff.patch` gives each file's offset.
+1. Read its section of `<work>/diff.patch` using `patchLines` from `manifest.json` (or `grep -n '^diff --git' <work>/diff.patch`). Skip re-reading huge generated schemas/lockfiles line-by-line once you see the contract delta.
 2. Map every hunk to its unit: a method or function, a component, a test case, or the smallest contract item (endpoint parameter, DTO field, config key, schema property, dependency version, translation key, CSS rule).
 3. First understand the **before** code: read the whole unit with `git -C <repo> show <mergeBase>:<old path>` — what it did and why it was shaped that way. Then read the **after** code: the working-tree file in working-tree mode, otherwise `git -C <repo> show <headSha>:<path>`. Follow a caller or callee only when you need it to state the effect. Framework or library behavior may be checked read-only (dependency sources in the build cache, official docs). For binary or mode-only changes, record what changed (type, size, mode) without reading the content.
 4. Create `<work>/ledger.md` and add one line per unit: `unit | before | after | behavioral difference | evidence (path:line, or artifact + path/URL)`.
@@ -110,9 +112,16 @@ Levels: `conclusion` → `changes.summary` → domains (`points`) → logic grou
   Peers with no inherent order (six parallel client configurations, say) follow path order.
 - **Tests sit with their implementation.** A test goes in the same group — or the same subgroup when the group is split — after the implementation it verifies; the same applies to deleted tests. Only tests whose implementation is not in the diff go to `Tests`, the last domain. `render` enforces collect's `[test of …]` pairing; override it with `pairedWith`, which takes one path or a list when a test verifies several files.
 
-### 4. Write content.json
+For diffs with more than ~5 files, validate the pyramid **before** writing prose:
 
-`<work>/content.json` starts as a skeleton that lists every changed path once, all in one placeholder group. Rewrite it to match your plan; only the field names are fixed. Every text is a `{"zh", "en"}` pair with the same meaning.
+1. Write a compact `<work>/plan.json` listing only `meta`, `flow`/`contract` flags, domains, groups/subgroups, and file paths (see [references/content-contract.md](references/content-contract.md)).
+2. Run `python3 <skill>/scripts/review_workspace.py scaffold --work <work> --plan <work>/plan.json --auto-place-tests` (omit `--auto-place-tests` if you placed every test explicitly; adjust `--max-files` as needed, default 12). `scaffold` catches missing files, wrong test placement, and bad subgroups immediately, then emits bounded `<work>/parts/*.json` skeletons (`00-overview.json`, `01-backend.json`, …).
+
+### 4. Write content (parts/*.json or content.json)
+
+Fill the `<work>/parts/*.json` skeletons generated by `scaffold` (sequentially or in parallel per domain chunk). Bounded chunks avoid long single-turn output timeouts, eliminate path typos, and keep test placement pre-validated. For tiny diffs (≤ 5 files), you may edit `<work>/content.json` directly instead of scaffolding. Every text is a `{"zh", "en"}` pair with the same meaning.
+
+When writing JSON strings containing quotes in Chinese prose, use Chinese corner brackets (`「…」` / `“…”`) or escape ASCII quotes (`\"`) — or generate parts via Python `json.dumps`. Run `python3 <skill>/scripts/review_workspace.py check --work <work> --part <file>` after writing a part if you want immediate feedback.
 
 Panel rules — the units of each file (改了什么 / 为什么):
 
@@ -128,28 +137,28 @@ Panel rules — the units of each file (改了什么 / 为什么):
 
 Other text: `conclusion` is one sentence (≤ 90 Chinese characters); `role` is one short line; a group or subgroup `summary` says why it exists.
 
-### 5. Render
+### 5. Assemble & render
 
-Run `python3 <skill>/scripts/review_workspace.py render --work <work>`. It validates the contract, file coverage, test placement, translations and the no-evidence rule, renders the HTML, and self-checks file counts, statuses, hunks and `+/-` against git.
+If you wrote `<work>/parts/*.json`, run `python3 <skill>/scripts/review_workspace.py assemble --work <work> --render` (or `assemble --work <work>` followed by `render --work <work>`). If you edited `<work>/content.json` directly, run `python3 <skill>/scripts/review_workspace.py render --work <work>`. It validates the contract, file coverage, test placement, translations and the no-evidence rule, renders the HTML, and self-checks file counts, statuses, hunks and `+/-` against git.
 
 Fix every listed error and re-run until it prints `Rendered`. Fix warnings too, unless you have a reason to keep the text as is. Keep the "Report facts" lines it prints.
 
 ### 6. Smoke-test in a browser
 
-1. Serve the directory that contains the HTML: `python3 -m http.server <port> --bind 127.0.0.1 --directory <that dir>`. In-editor browsers often block `file://`, and a separate origin keeps test data away from real review comments.
+**Preferred (automated Node/Playwright runner):**
+
+Run `python3 <skill>/scripts/review_workspace.py smoke --work <work>` (or `node <skill>/scripts/smoke_runner.mjs <html-path>`). It reuses a persistent Playwright cache (`~/.cache/code-review-workspace/playwright`), prefers an already-cached Chromium or system Chrome/Edge before downloading anything, serves the HTML over an in-process ephemeral `127.0.0.1` server, runs all phases (`seed` → reload → `edit` → reload → `verify` → `layout` at 1440×900 and 390×844 → `cleanup`), and exits cleanly.
+
+**Fallback (interactive/MCP browser tool):**
+
+1. Serve the directory that contains the HTML in the background with stdio detached:
+   `python3 -m http.server <port> --bind 127.0.0.1 --directory <that dir> </dev/null >/dev/null 2>&1 &`
+   Redirecting stdin/stdout/stderr is required: `http.server` logs each request to `stderr` before flushing HTTP headers, so leaving `stderr` attached to a closed command pipe causes `BrokenPipeError` (`ERR_EMPTY_RESPONSE`) on subsequent tool calls.
 2. Wait until `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:<port>/<file>` prints `200`.
-3. Load [scripts/smoke_test.js](scripts/smoke_test.js) into the page (Playwright: `page.addScriptTag({ path })`; otherwise evaluate the file's text).
-4. Run `await window.__crwSmoke(phase)` for each phase in order:
-   1. `seed`
-   2. Reload the page and load the script again.
-   3. `edit` (inline and list editing, cancel, validation, language switching, metadata and export)
-   4. Reload the page and load the script again.
-   5. `verify` (edited comment persists after reload, copy, locate and delete)
-   6. `layout` at 1440×900, then `layout` again at 390×844
-   7. `cleanup`
-5. Each phase returns `{ ok, failures, checks }`; `checks` names every verified behavior, and a layout failure names the overflowing text. After a fix: run `cleanup`, re-render, reload, and start again from `seed`.
-6. The test captures Copy all in the page and never writes to the system clipboard.
-7. Stop the server. Without any browser tool, say so in the report instead of claiming success.
+3. Load [scripts/smoke_test.js](scripts/smoke_test.js) into the page and run `await window.__crwSmoke(phase)` in order: `seed` → reload & reload script → `edit` → reload & reload script → `verify` → `layout` (1440×900) → `layout` (390×844) → `cleanup`.
+4. Stop the server. Without any browser tool or Node/Playwright, report those checks under "Not verified" instead of claiming success.
+
+Each phase returns `{ ok, failures, checks }`; `checks` names every verified behavior, and a layout failure names the overflowing text. After a fix: run `cleanup` (automatic in `smoke`), re-render, and re-run from `seed`. The test captures Copy all in the page and never writes to the system clipboard.
 
 ### 7. Clean up and report
 
@@ -177,3 +186,4 @@ Run `python3 <skill>/scripts/review_workspace.py cleanup --work <work>`. Then co
 - Re-running `collect` with the same `--work` refreshes an untouched skeleton but keeps an edited `content.json`; `render` then reports files that were added to or removed from the diff.
 - Long unbroken identifiers are fine in text. The page wraps them, and `layout` reports any overflow it finds.
 - Fixed labels from the template stay English in both languages by design: `Viewed`, `Copy all`, `Review comments`, `Ask about this diff`, `Review Workspace`, and the file/hunk counts. Domain names are English too.
+- Unescaped ASCII `"` inside Chinese JSON strings (like `"无权限"`) breaks JSON parsing; use `「…」` / `“…”` or `\"`, or build JSON via `json.dumps`.
