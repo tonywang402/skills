@@ -8,7 +8,7 @@ Each diff shows only hunk headers and code lines. Renames, copies, mode changes,
 
 ## Bilingual text `T`
 
-`{"zh": "…", "en": "…"}` — both non-empty, one line (whitespace is collapsed), same meaning. `en` must not contain CJK characters, except inside backtick code spans: quote code, identifiers and paths as `` `docs/说明.md` ``.
+`{"zh": "…", "en": "…"}` — both non-empty, one line (whitespace is collapsed), same meaning. `en` must not contain CJK characters, except inside backtick code spans: quote code, identifiers and paths as `` `docs/说明.md` ``. Inside JSON strings, avoid unescaped ASCII `"` (use `\"`, or Chinese corner brackets `「…」` / `“…”` in `zh`).
 
 The English view replaces each Chinese text by exact lookup, so one zh string must always map to the same en string across the whole file; `render` reports conflicts. Code identifiers, file paths and domain names stay unchanged in both languages.
 
@@ -141,3 +141,42 @@ Warnings do not block rendering, but fix them unless you have a reason: `conclus
   }]}
 }
 ```
+
+## Split authoring: `plan.json` and `parts/*.json`
+
+For larger diffs, write a compact `<work>/plan.json` and let `scaffold` validate file coverage and test placement upfront before splitting the writing into bounded `<work>/parts/*.json` skeletons.
+
+### `plan.json` (`code-review-workspace/plan@1`)
+
+```jsonc
+{
+  "schema": "code-review-workspace/plan@1",        // optional
+  "meta": { "title": "Code Review · …", "subtitle": "…" },  // optional (defaults to <TODO>)
+  "flow": true,                                    // optional boolean (default false) or prefilled flow object
+  "contract": false,                               // optional boolean (default false) or prefilled contract object
+  "autoPlaceTests": true,                          // optional; same as passing --auto-place-tests
+  "domains": [{
+    "name": "Backend",
+    "points": [T],                                 // optional (defaults to [<TODO>])
+    "groups": [{
+      "title": T, "summary": T,                    // both optional (default to <TODO>)
+      "files": [
+        "path/to/file.kt",                         // string path, or {"path": "…", "pairedWith": "…"}
+        { "path": "path/to/ExtraTest.kt", "pairedWith": "path/to/file.kt" }
+      ]
+      // or "subgroups": [{ "title": T, "summary": T, "files": [ … ] }]  // ≥ 2 when present
+    }]
+  }]
+}
+```
+
+With `--auto-place-tests`, omitted test files whose `testOf` implementation is in the plan are inserted immediately after that implementation in the same group/subgroup; omitted tests with `testOf: null` are placed in `Tests` at the end.
+
+### `parts/*.json` (`code-review-workspace/part@1`)
+
+`scaffold` generates:
+
+- `00-overview.json` (`"part": "overview"`): `meta`, `conclusion`, `behavior`, optional `flow`, optional `contract`, `changesSummary`, and `risks`.
+- `<NN>-<domain>[-<chunk>].json` (`"part": "domain"`): `domainIndex`, `domain`, `points` (on the first chunk of each domain), and `groups` (each carrying `groupIndex`, `title`, `summary`, and either `files` or `subgroups` with `subgroupIndex`).
+
+Run `check --work <work> [--part <file>]` to validate individual parts or cross-part translations, then `assemble --work <work> [--render]` to build `<work>/content.json`.

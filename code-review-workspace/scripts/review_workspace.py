@@ -2,11 +2,17 @@
 """Build an offline, single-file HTML code-review workspace from a real git diff.
 
 Subcommands (run `<subcommand> --help` for options):
-  collect  Resolve the review scope, then write diff.patch, manifest.json and a
-           content.json skeleton into a work directory.
-  render   Validate content.json against the manifest, render the HTML and
-           self-check it. Nothing is written when validation fails.
-  cleanup  Delete the temporary work directory (including a temporary PR clone).
+  collect   Resolve the review scope, then write diff.patch, manifest.json and a
+            content.json skeleton into a work directory.
+  locate    Find locally cloned git repositories matching a PR URL or name.
+  scaffold  Validate a lightweight plan.json upfront and split it into bounded
+            parts/*.json skeletons ready to fill in parallel or sequentially.
+  check     Validate one part file or all parts/*.json before assembling.
+  assemble  Merge parts/*.json into content.json and validate it.
+  render    Validate content.json against the manifest, render the HTML and
+            self-check it. Nothing is written when validation fails.
+  smoke     Run the browser smoke test against the rendered HTML via Playwright.
+  cleanup   Delete the temporary work directory (including a temporary PR clone).
 
 Python 3.9+, standard library only.
 """
@@ -30,14 +36,22 @@ from html.parser import HTMLParser
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHELL_PATH = os.path.join(SKILL_DIR, 'assets', 'review-shell.html')
+SMOKE_RUNNER_PATH = os.path.join(SKILL_DIR, 'scripts', 'smoke_runner.mjs')
 MARKER = '.code-review-workspace'
 MANIFEST_SCHEMA = 'code-review-workspace/manifest@1'
 CONTENT_SCHEMA = 'code-review-workspace/content@1'
+PLAN_SCHEMA = 'code-review-workspace/plan@1'
+PART_SCHEMA = 'code-review-workspace/part@1'
 OUTPUT_DIR = 'analysis'
 TODO = '<TODO>'
 TESTS_DOMAIN = 'Tests'
 RISK_LEVELS = {'High': 'high', 'Medium': 'watch', 'Low': 'info'}
 DOMAIN_ACCENT = {'Frontend': 'frontend', 'Runtime Config': 'runtime', 'Infrastructure': 'runtime', 'Build & CI': 'runtime'}
+DEFAULT_SEARCH_DIRS = ('Documents', 'code', 'Code', 'projects', 'Projects', 'workspace', 'Workspace',
+                       'workspaces', 'repos', 'dev', 'src', 'git', 'github')
+SKIP_SCAN_DIRS = {'node_modules', '.git', '.hg', '.svn', '__pycache__', 'Library', '.Trash', 'Applications',
+                  '.venv', 'venv', 'target', 'build', 'dist', '.gradle', '.idea', '.cache', 'Obsidian Vault',
+                  'Movies', 'Music', 'Pictures', 'Downloads'}
 
 TICKET_RE = re.compile(r'(?<![A-Za-z0-9])([A-Z][A-Z0-9]+-\d+)(?![A-Za-z0-9])')
 CJK_RE = re.compile('[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]')
@@ -121,14 +135,33 @@ def sanitize(text):
     return re.sub(r'-{2,}', '-', text)
 
 
+def format_json_error(path, text, error):
+    lines = text.splitlines()
+    if not (1 <= error.lineno <= len(lines)):
+        return f'{path} is not valid JSON: {error}'
+    line = lines[error.lineno - 1]
+    col = max(0, error.colno - 1)
+    start = max(0, col - 50)
+    end = min(len(line), col + 50)
+    snippet = ('...' if start > 0 else '') + line[start:end] + ('...' if end < len(line) else '')
+    caret_pos = (3 if start > 0 else 0) + (col - start)
+    caret = ' ' * caret_pos + '^'
+    hint = ''
+    if re.search(r'[\u4e00-\u9fff]"[^:,}\]\s]|[^:,{\[\s]"[\u4e00-\u9fff]', line):
+        hint = '\n  hint: unescaped \'"\' inside string? Escape as \'\\"\' or use 「…」 / “…” (or serialize with json.dumps).'
+    return f'{path} is not valid JSON: {error}\n  {snippet}\n  {caret}{hint}'
+
+
 def read_json(path):
     try:
         with open(path, encoding='utf-8') as handle:
-            return json.load(handle)
+            text = handle.read()
     except FileNotFoundError:
         raise Fail(f'missing file: {path}')
+    try:
+        return json.loads(text)
     except json.JSONDecodeError as error:
-        raise Fail(f'{path} is not valid JSON: {error}')
+        raise Fail(format_json_error(path, text, error))
 
 
 def write_text(path, text):
@@ -193,17 +226,174 @@ def find_local_repo(start, pr):
     if not top:
         return None, None
     want = f'{pr["owner"]}/{pr["repo"]}'.lower()
+    candidates = []
     for line in (git_try(top, 'remote', '-v') or '').splitlines():
         parts = line.split()
-        if len(parts) < 2:
-            continue
-        match = REMOTE_RE.match(parts[1])
+        if len(parts) >= 2:
+            candidates.append((parts[0], parts[1]))
+    for line in (git_try(top, 'config', '--get-regexp', r'^remote\..*\.url$') or '').splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and parts[0].startswith('remote.') and parts[0].endswith('.url'):
+            candidates.append((parts[0][7:-4], parts[1]))
+    for remote_name, remote_url in candidates:
+        match = REMOTE_RE.match(remote_url)
         if not match:
             continue
         host, path = match.group(1).lower(), match.group(2).lower()
         if '/'.join(path.split('/')[-2:]) == want and (host == pr['host'] or '.' not in host):
-            return top, parts[0]
+            return top, remote_name
     return None, None
+
+
+def default_search_roots(start=None, extra_roots=()):
+    candidates = list(extra_roots)
+    env_roots = os.environ.get('CRW_REPO_ROOTS', '')
+    if env_roots:
+        candidates.extend(p for p in env_roots.split(os.pathsep) if p)
+    if start:
+        abs_start = os.path.abspath(start)
+        if os.path.isdir(abs_start):
+            candidates.append(abs_start)
+        parent = os.path.dirname(abs_start)
+        if parent and os.path.isdir(parent):
+            candidates.append(parent)
+    home = os.path.expanduser('~')
+    for name in DEFAULT_SEARCH_DIRS:
+        candidates.append(os.path.join(home, name))
+    seen, roots = set(), []
+    for item in candidates:
+        expanded = os.path.expanduser(item)
+        if not os.path.isdir(expanded):
+            continue
+        real = os.path.realpath(expanded)
+        if real not in seen:
+            seen.add(real)
+            roots.append(real)
+    return roots
+
+
+def git_config_path(repo_dir):
+    dotgit = os.path.join(repo_dir, '.git')
+    if os.path.isdir(dotgit):
+        return os.path.join(dotgit, 'config')
+    if os.path.isfile(dotgit):
+        try:
+            with open(dotgit, encoding='utf-8', errors='replace') as handle:
+                first = handle.readline().strip()
+        except OSError:
+            return None
+        if first.startswith('gitdir:'):
+            gitdir = first[7:].strip()
+            if not os.path.isabs(gitdir):
+                gitdir = os.path.abspath(os.path.join(repo_dir, gitdir))
+            commondir_file = os.path.join(gitdir, 'commondir')
+            if os.path.isfile(commondir_file):
+                try:
+                    with open(commondir_file, encoding='utf-8', errors='replace') as handle:
+                        common = handle.read().strip()
+                    if common:
+                        gitdir = os.path.abspath(os.path.join(gitdir, common))
+                except OSError:
+                    pass
+            return os.path.join(gitdir, 'config')
+    return None
+
+
+def git_config_text(repo_dir):
+    cfg = git_config_path(repo_dir)
+    if not cfg or not os.path.isfile(cfg):
+        return ''
+    try:
+        with open(cfg, encoding='utf-8', errors='replace') as handle:
+            return handle.read()
+    except OSError:
+        return ''
+
+
+def scan_git_repos(search_roots, max_depth=3):
+    seen_repos = set()
+    for root in search_roots:
+        base_depth = root.count(os.sep)
+        for cur, dirs, _ in os.walk(root, followlinks=False):
+            dotgit = os.path.join(cur, '.git')
+            if os.path.exists(dotgit):
+                real = os.path.realpath(cur)
+                if real not in seen_repos:
+                    seen_repos.add(real)
+                    yield cur, os.path.isdir(dotgit)
+                dirs[:] = []
+                continue
+            if cur.count(os.sep) - base_depth >= max_depth:
+                dirs[:] = []
+                continue
+            dirs[:] = sorted(d for d in dirs if d not in SKIP_SCAN_DIRS and not d.startswith('.'))
+
+
+def discover_pr_repos(start, pr, search_roots=()):
+    roots = default_search_roots(start, search_roots)
+    repo_needle = pr['repo'].lower()
+    want = f'{pr["owner"]}/{pr["repo"]}'.lower()
+    matches = []
+    for candidate, is_main in scan_git_repos(roots):
+        cfg = git_config_text(candidate).lower()
+        if want not in cfg and repo_needle not in cfg:
+            continue
+        top, remote = find_local_repo(candidate, pr)
+        if top:
+            base = os.path.basename(top).lower()
+            score = (0 if is_main else 1, 0 if base == repo_needle else 1, len(top.split(os.sep)), top)
+            matches.append((score, top, remote, is_main))
+    matches.sort(key=lambda item: item[0])
+    return [{'path': top, 'remote': remote, 'isMain': is_main} for _, top, remote, is_main in matches]
+
+
+def discover_named_repos(name_or_spec, start=None, search_roots=()):
+    spec = name_or_spec.strip().strip('/')
+    if spec.endswith('.git'):
+        spec = spec[:-4]
+    spec_lower = spec.lower()
+    want_owner_repo = '/' in spec_lower
+    repo_name = spec_lower.rsplit('/', 1)[-1]
+    roots = default_search_roots(start, search_roots)
+    matches = []
+    for candidate, is_main in scan_git_repos(roots):
+        base_lower = os.path.basename(candidate).lower()
+        cfg_lower = git_config_text(candidate).lower()
+        if not want_owner_repo and base_lower != repo_name and repo_name not in cfg_lower:
+            continue
+        if want_owner_repo and spec_lower not in cfg_lower:
+            continue
+        remotes = (git_try(candidate, 'remote', '-v') or '').splitlines()
+        matched_remote = None
+        for line in remotes:
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            m = REMOTE_RE.match(parts[1])
+            if not m:
+                continue
+            rpath = m.group(2).lower()
+            tail = '/'.join(rpath.split('/')[-2:])
+            rname = rpath.rsplit('/', 1)[-1]
+            if (want_owner_repo and tail == spec_lower) or (not want_owner_repo and rname == repo_name):
+                matched_remote = (parts[0], parts[1])
+                break
+        if matched_remote or (not want_owner_repo and base_lower == repo_name):
+            score = (0 if is_main else 1, 0 if base_lower == repo_name else 1, len(candidate.split(os.sep)), candidate)
+            matches.append((score, {
+                'path': candidate,
+                'remote': matched_remote[0] if matched_remote else None,
+                'url': matched_remote[1] if matched_remote else None,
+                'isMain': is_main,
+            }))
+    matches.sort(key=lambda item: item[0])
+    return [item[1] for item in matches]
+
+
+def looks_like_repo_query(raw):
+    if not raw or os.path.isabs(raw) or raw.startswith(('.', '~')):
+        return False
+    return raw.count('/') <= 1 and '\\' not in raw
 
 
 def clone_repo(pr, work):
@@ -311,15 +501,26 @@ def parse_numstat(out):
     return entries
 
 
-def split_patch(patch):
-    sections, current = [], None
-    for line in patch.split('\n'):  # never splitlines(): it also splits on \r, \x0c, \u2028 ...
+def split_patch_with_lines(patch):
+    sections, ranges, current = [], [], None
+    lines = patch.split('\n')  # never splitlines(): it also splits on \r, \x0c, \u2028 ...
+    last_idx = len(lines) - 1 if lines and lines[-1] == '' else len(lines)
+    for idx, line in enumerate(lines[:last_idx], 1):
         if line.startswith('diff --git '):
+            if current is not None:
+                ranges[-1][1] = idx - 1
             current = [line]
             sections.append(current)
+            ranges.append([idx, idx])
         elif current is not None:
             current.append(line)
-    return sections
+    if current is not None:
+        ranges[-1][1] = last_idx
+    return sections, ranges
+
+
+def split_patch(patch):
+    return split_patch_with_lines(patch)[0]
 
 
 def parse_section(lines):
@@ -468,34 +669,88 @@ def skeleton(files):
     }
 
 
+def resolve_pr_output_root(start, repo, matched_directly, cloned):
+    if matched_directly:
+        return repo
+    ws_top = git_try(start, 'rev-parse', '--show-toplevel')
+    if ws_top or os.path.isdir(os.path.join(start, OUTPUT_DIR)):
+        return ws_top or start
+    return start if cloned else repo
+
+
+def resolve_local_repo_arg(raw_repo, search_roots):
+    abs_repo = os.path.abspath(raw_repo)
+    top = git_try(abs_repo, 'rev-parse', '--show-toplevel') if os.path.exists(abs_repo) else None
+    if top:
+        return top, None
+    if os.path.exists(abs_repo) or not looks_like_repo_query(raw_repo):
+        raise Fail(f'not inside a git repository: {abs_repo}')
+    matches = discover_named_repos(raw_repo, os.getcwd(), search_roots)
+    if not matches:
+        raise Fail(f'repository {raw_repo!r} was not found locally (searched workspace parent and common code directories)')
+    if len(matches) > 1:
+        listed = '\n'.join(f'  - {m["path"]}' for m in matches[:10])
+        raise Fail(f'multiple local repositories matched {raw_repo!r}; pass the exact --repo path:\n{listed}')
+    return matches[0]['path'], f'Resolved  : --repo {raw_repo} -> {matches[0]["path"]}'
+
+
 def cmd_collect(args):
     work = os.path.abspath(args.work) if args.work else tempfile.mkdtemp(prefix='code-review-')
     os.makedirs(work, exist_ok=True)
     write_text(os.path.join(work, MARKER), 'created by code-review-workspace collect\n')
-    notes, pr, cloned, env = [], None, False, None
+    notes, pr, cloned, discovered, env = [], None, False, False, None
     untracked, excluded, tree, has_worktree_changes = [], [], None, False
+    start = os.path.abspath(args.repo)
+    workspace_hint = start if os.path.isdir(start) else os.getcwd()
+    matched_directly = False
 
     if args.pr:
         pr = parse_pr_url(args.pr)
         meta = gh_pr_view(pr)
         pr.update({'title': meta.get('title') or '', 'body': meta.get('body') or '', 'state': meta.get('state'),
                    'baseRefName': meta['baseRefName'], 'headRefName': meta['headRefName']})
-        repo, remote = find_local_repo(os.path.abspath(args.repo), pr)
+        repo, remote = find_local_repo(workspace_hint, pr) if os.path.isdir(start) else (None, None)
+        matched_directly = bool(repo)
+        if not repo and not args.no_local_search:
+            found = discover_pr_repos(workspace_hint, pr, args.search_root)
+            if found:
+                repo, remote = found[0]['path'], found[0]['remote']
+                discovered = True
         if not repo:
             repo, remote = clone_repo(pr, work)
             cloned = True
-        head_sha = fetch_sha(repo, remote, f'refs/pull/{pr["number"]}/head')
-        base_tip = fetch_sha(repo, remote, f'refs/heads/{pr["baseRefName"]}')
+
+        def prepare_pr_commits(target_repo, target_remote):
+            head_sha_val = fetch_sha(target_repo, target_remote, f'refs/pull/{pr["number"]}/head')
+            base_tip_val = fetch_sha(target_repo, target_remote, f'refs/heads/{pr["baseRefName"]}')
+            recorded = meta.get('baseRefOid')
+            base_sha_val = recorded if recorded and git_try(target_repo, 'cat-file', '-e', recorded + '^{commit}') is not None else base_tip_val
+            merge_base_val = git_try(target_repo, 'merge-base', base_sha_val, head_sha_val)
+            if not merge_base_val:
+                raise Fail('no merge base between base and head (unrelated histories or a shallow clone; try `git fetch --unshallow`)')
+            return head_sha_val, base_tip_val, recorded, base_sha_val, merge_base_val
+
+        try:
+            head_sha, base_tip, recorded, base_sha, merge_base = prepare_pr_commits(repo, remote)
+        except Fail as err:
+            if not discovered:
+                raise
+            notes.append(f'local clone at {repo} could not be used ({err}); used a temporary clone instead')
+            repo, remote = clone_repo(pr, work)
+            cloned, discovered = True, False
+            head_sha, base_tip, recorded, base_sha, merge_base = prepare_pr_commits(repo, remote)
+
         # GitHub diffs a PR against its recorded base commit; for merged PRs the branch tip already contains the head.
-        recorded = meta.get('baseRefOid')
-        base_sha = recorded if recorded and git_try(repo, 'cat-file', '-e', recorded + '^{commit}') is not None else base_tip
         if base_sha != recorded:
             notes.append(f'recorded PR base {str(recorded)[:12]} is not available locally; using {pr["baseRefName"]} tip {base_tip[:12]}')
         if head_sha != meta['headRefOid']:
             notes.append(f'PR head moved: gh reported {meta["headRefOid"][:12]}, fetched {head_sha[:12]}; reviewing the fetched commit')
         base_label, mode, branch = f'{remote}/{pr["baseRefName"]}', 'pr', pr['headRefName']
     else:
-        repo = toplevel(os.path.abspath(args.repo))
+        repo, resolved_msg = resolve_local_repo_arg(args.repo, args.search_root)
+        if resolved_msg:
+            print(resolved_msg)
+        matched_directly = True
         base_label = args.base
         if not args.no_fetch:
             warning = maybe_fetch_base(repo, args.base)
@@ -513,10 +768,9 @@ def cmd_collect(args):
         else:
             head_sha, mode = git(repo, 'rev-parse', 'HEAD').strip(), 'worktree'
         branch = branch_for(repo, mode, head_sha)
-
-    merge_base = git_try(repo, 'merge-base', base_sha, head_sha)
-    if not merge_base:
-        raise Fail('no merge base between base and head (unrelated histories or a shallow clone; try `git fetch --unshallow`)')
+        merge_base = git_try(repo, 'merge-base', base_sha, head_sha)
+        if not merge_base:
+            raise Fail('no merge base between base and head (unrelated histories or a shallow clone; try `git fetch --unshallow`)')
 
     if mode == 'worktree':
         env, untracked, excluded, tree, has_worktree_changes = build_worktree_index(repo, work, args.exclude, args.allow)
@@ -529,13 +783,15 @@ def cmd_collect(args):
     name_status = parse_name_status(git(repo, 'diff', *DIFF_FLAGS, '--name-status', '-z', *rng, env=env))
     numstat = parse_numstat(git(repo, 'diff', *DIFF_FLAGS, '--numstat', '-z', *rng, env=env))
     patch = git(repo, 'diff', *DIFF_FLAGS, *rng, env=env)
-    files, parsed = assemble_files(name_status, numstat, split_patch(patch))
+    sections, patch_ranges = split_patch_with_lines(patch)
+    files, parsed = assemble_files(name_status, numstat, sections)
     if not files:
         raise Fail('no changes between the base and the review head; nothing to review')
     paths = {f['path'] for f in files}
-    for f in files:
+    for f, line_range in zip(files, patch_ranges):
         f['isTest'] = is_test_path(f['path'])
         f['testOf'] = test_counterpart(f['path'], paths) if f['isTest'] else None
+        f['patchLines'] = line_range
 
     log = git(repo, 'log', '--no-color', '--reverse', '--format=%H%x1f%B%x1e', f'{merge_base}..{head_sha}')
     commits = []
@@ -550,9 +806,7 @@ def cmd_collect(args):
     if args.out:
         out = os.path.abspath(args.out)
     else:
-        root = repo
-        if cloned:
-            root = git_try(os.path.abspath(args.repo), 'rev-parse', '--show-toplevel') or os.path.abspath(args.repo)
+        root = resolve_pr_output_root(workspace_hint, repo, matched_directly, cloned) if pr else repo
         out = output_path(root, ticket, pr['number'] if pr else None, branch, head_sha)
     head_label = f'{head_sha}+worktree.{tree[:8]}' if has_worktree_changes else head_sha
     if pr:
@@ -563,7 +817,7 @@ def cmd_collect(args):
     totals = {'files': len(files), 'hunks': sum(f['hunks'] for f in files),
               'additions': sum(f['additions'] or 0 for f in files), 'deletions': sum(f['deletions'] or 0 for f in files)}
     manifest = {
-        'schema': MANIFEST_SCHEMA, 'mode': mode, 'repoRoot': repo, 'clonedRepo': cloned,
+        'schema': MANIFEST_SCHEMA, 'mode': mode, 'repoRoot': repo, 'clonedRepo': cloned, 'discoveredRepo': discovered,
         'baseRef': base_label, 'baseSha': base_sha, 'mergeBase': merge_base, 'headSha': head_sha, 'headLabel': head_label,
         'worktreeChanges': has_worktree_changes, 'branch': branch, 'ticket': ticket, 'pr': pr, 'commits': commits,
         'untrackedIncluded': untracked, 'untrackedExcluded': excluded, 'files': files, 'totals': totals,
@@ -586,6 +840,10 @@ def print_collect_summary(m, work):
     t = m['totals']
     head = m['headSha'][:12] + (' + working tree' if m['worktreeChanges'] else '')
     print(f'Scope    : {m["mode"]} | base {m["baseRef"]} @ merge-base {m["mergeBase"][:12]} | head {head}')
+    if m.get('discoveredRepo'):
+        print(f'Repo     : {m["repoRoot"]} (auto-discovered local clone)')
+    elif m.get('clonedRepo'):
+        print(f'Repo     : {m["repoRoot"]} (temporary clone)')
     if m['pr']:
         print(f'PR       : #{m["pr"]["number"]} [{m["pr"].get("state")}] {m["pr"]["title"]} ({m["pr"]["url"]})')
     print(f'Commits  : {len(m["commits"])}')
@@ -795,6 +1053,15 @@ def validate(content, manifest):
             c.error('changes.domains', f'the "{TESTS_DOMAIN}" domain must be the last domain')
     model['domains'] = domains
 
+    check_placement_rules(placement, by_path, names, c)
+    if len(model.get('conclusion', ('',))[0]) > 90:
+        c.warnings.append('conclusion.zh is longer than 90 characters; the apex should be one sentence')
+    return model, c
+
+
+def check_placement_rules(placement, by_path, domain_names, c):
+    if TESTS_DOMAIN in domain_names and domain_names.index(TESTS_DOMAIN) != len(domain_names) - 1:
+        c.error('changes.domains', f'the "{TESTS_DOMAIN}" domain must be the last domain')
     missing = [p for p in by_path if p not in placement]
     for path in missing:
         c.error('changes', f'changed file missing from all groups: {path}')
@@ -818,9 +1085,644 @@ def validate(content, manifest):
                                         + ('' if where['explicit'] else '; if this pairing is wrong, set "pairedWith"'))
             elif target['index'] > where['index']:
                 c.error(where['where'], f'{path} must come after {target_path} in its {where["kind"]}')
-    if len(model.get('conclusion', ('',))[0]) > 90:
-        c.warnings.append('conclusion.zh is longer than 90 characters; the apex should be one sentence')
-    return model, c
+
+
+# ---------------------------------------------------------------- split authoring (scaffold / check / assemble)
+
+def load_manifest(work):
+    manifest = read_json(os.path.join(work, 'manifest.json'))
+    if manifest.get('schema') != MANIFEST_SCHEMA:
+        raise Fail('manifest.json is not from this script version; re-run collect')
+    return manifest
+
+
+def parse_plan_file_item(raw, where, by_path, c):
+    if isinstance(raw, str):
+        path = raw
+        explicit = False
+        paired_raw = None
+    elif isinstance(raw, dict):
+        if not c.keys(where, raw, ('path',), ('pairedWith',)):
+            return None
+        path = raw.get('path')
+        explicit = 'pairedWith' in raw
+        paired_raw = raw.get('pairedWith')
+    else:
+        c.error(where, 'must be a file path string or {"path": "...", ...}')
+        return None
+    if not isinstance(path, str) or path not in by_path:
+        c.error(f'{where}.path' if isinstance(raw, dict) else where, f'{path!r} is not a changed file in this diff')
+        return None
+    paired_list = paired_raw
+    if isinstance(paired_list, str):
+        paired_list = [paired_list]
+    if paired_list is not None and (not isinstance(paired_list, list) or not paired_list
+                                    or not all(isinstance(p, str) for p in paired_list)):
+        c.error(f'{where}.pairedWith', 'must be a changed file path, a non-empty list of paths, or null')
+        return None
+    return {'path': path, 'explicit': explicit, 'pairedRaw': paired_raw, 'pairedList': paired_list}
+
+
+def make_file_skeleton(item):
+    pair = {'zh': TODO, 'en': TODO}
+    entry = {'path': item['path'], 'role': pair, 'units': [{'name': TODO, 'change': pair, 'reason': pair}]}
+    if item['explicit']:
+        entry['pairedWith'] = item['pairedRaw']
+    return entry
+
+
+def chunk_domain(domain, domain_index, max_files):
+    groups = domain['groups']
+    chunks = []
+    current_groups = []
+    current_count = 0
+
+    def flush():
+        nonlocal current_groups, current_count
+        if current_groups:
+            chunks.append(current_groups)
+            current_groups = []
+            current_count = 0
+
+    for gi, group in enumerate(groups):
+        if 'files' in group:
+            gfiles = group['files']
+            if len(gfiles) <= max_files:
+                if current_count and current_count + len(gfiles) > max_files:
+                    flush()
+                current_groups.append({
+                    'groupIndex': gi,
+                    'title': group['title'],
+                    'summary': group['summary'],
+                    'files': [make_file_skeleton(item) for item in gfiles],
+                })
+                current_count += len(gfiles)
+            else:
+                flush()
+                for offset in range(0, len(gfiles), max_files):
+                    part_group = {'groupIndex': gi, 'files': [make_file_skeleton(item) for item in gfiles[offset:offset + max_files]]}
+                    if offset == 0:
+                        part_group['title'] = group['title']
+                        part_group['summary'] = group['summary']
+                    chunks.append([part_group])
+        else:
+            subs = group['subgroups']
+            total_sub_files = sum(len(s['files']) for s in subs)
+            if total_sub_files <= max_files:
+                if current_count and current_count + total_sub_files > max_files:
+                    flush()
+                current_groups.append({
+                    'groupIndex': gi,
+                    'title': group['title'],
+                    'summary': group['summary'],
+                    'subgroups': [{'subgroupIndex': si, 'title': s['title'], 'summary': s['summary'],
+                                   'files': [make_file_skeleton(item) for item in s['files']]}
+                                  for si, s in enumerate(subs)],
+                })
+                current_count += total_sub_files
+            else:
+                flush()
+                sub_bucket = []
+                sub_count = 0
+                first_of_group = True
+
+                def emit_sub_bucket():
+                    nonlocal sub_bucket, sub_count, first_of_group
+                    if not sub_bucket:
+                        return
+                    part_group = {'groupIndex': gi, 'subgroups': sub_bucket}
+                    if first_of_group:
+                        part_group['title'] = group['title']
+                        part_group['summary'] = group['summary']
+                        first_of_group = False
+                    chunks.append([part_group])
+                    sub_bucket = []
+                    sub_count = 0
+
+                for si, s in enumerate(subs):
+                    sfiles = s['files']
+                    if sub_count and sub_count + len(sfiles) > max_files:
+                        emit_sub_bucket()
+                    sub_bucket.append({
+                        'subgroupIndex': si,
+                        'title': s['title'],
+                        'summary': s['summary'],
+                        'files': [make_file_skeleton(item) for item in sfiles],
+                    })
+                    sub_count += len(sfiles)
+                emit_sub_bucket()
+    flush()
+
+    slug = sanitize(domain['name'].lower()) or f'domain-{domain_index + 1}'
+    multi = len(chunks) > 1
+    out = []
+    for ci, chunk_groups in enumerate(chunks):
+        fname = f'{domain_index + 1:02d}-{slug}-{ci + 1:02d}.json' if multi else f'{domain_index + 1:02d}-{slug}.json'
+        payload = {
+            'schema': PART_SCHEMA,
+            'part': 'domain',
+            'domainIndex': domain_index,
+            'domain': domain['name'],
+        }
+        if ci == 0:
+            payload['points'] = domain['points']
+        payload['groups'] = chunk_groups
+        out.append((fname, payload))
+    return out
+
+
+def cmd_scaffold(args):
+    work = os.path.abspath(args.work)
+    manifest = load_manifest(work)
+    if args.max_files < 1:
+        raise Fail('--max-files must be at least 1')
+    plan_path = os.path.abspath(args.plan or os.path.join(work, 'plan.json'))
+    plan = read_json(plan_path)
+    c = Checker()
+    pair = {'zh': TODO, 'en': TODO}
+
+    if not c.keys('plan', plan, ('domains',), ('schema', 'meta', 'flow', 'contract', 'autoPlaceTests')):
+        for err in c.errors:
+            print(f'  - {err}', file=sys.stderr)
+        return 2
+    if 'schema' in plan and plan['schema'] != PLAN_SCHEMA:
+        c.error('schema', f'must be "{PLAN_SCHEMA}"')
+
+    meta = plan.get('meta')
+    if meta is None:
+        meta = {'title': TODO, 'subtitle': TODO}
+    elif c.keys('plan.meta', meta, ('title', 'subtitle')):
+        c.plain('plan.meta.title', meta.get('title'), cjk_ok=False) if meta.get('title') != TODO else TODO
+        c.plain('plan.meta.subtitle', meta.get('subtitle'), cjk_ok=False) if meta.get('subtitle') != TODO else TODO
+
+    auto_place = args.auto_place_tests or bool(plan.get('autoPlaceTests'))
+    by_path = {f['path']: f for f in manifest['files']}
+    seen_paths = set()
+    domains = []
+
+    for di, draw in enumerate(c.items('plan.domains', plan.get('domains'), 1)):
+        dwhere = f'plan.domains[{di}]'
+        if not c.keys(dwhere, draw, ('name', 'groups'), ('points',)):
+            continue
+        name = c.plain(f'{dwhere}.name', draw.get('name'), cjk_ok=False)
+        points = draw.get('points') if 'points' in draw else [pair]
+        if not isinstance(points, list) or not (1 <= len(points) <= 4):
+            c.error(f'{dwhere}.points', 'needs 1-4 items')
+            points = [pair]
+        groups = []
+        for gi, graw in enumerate(c.items(f'{dwhere}.groups', draw.get('groups'), 1)):
+            gwhere = f'{dwhere}.groups[{gi}]'
+            if not c.keys(gwhere, graw, (), ('title', 'summary', 'files', 'subgroups')):
+                continue
+            if ('files' in graw) == ('subgroups' in graw):
+                c.error(gwhere, 'needs exactly one of "files" or "subgroups"')
+                continue
+            gtitle = graw.get('title', pair)
+            gsummary = graw.get('summary', pair)
+            if 'files' in graw:
+                items = []
+                for fi, fraw in enumerate(c.items(f'{gwhere}.files', graw.get('files'), 1)):
+                    parsed = parse_plan_file_item(fraw, f'{gwhere}.files[{fi}]', by_path, c)
+                    if parsed:
+                        if parsed['path'] in seen_paths:
+                            c.error(f'{gwhere}.files[{fi}]', f'{parsed["path"]} appears more than once')
+                        seen_paths.add(parsed['path'])
+                        items.append(parsed)
+                groups.append({'title': gtitle, 'summary': gsummary, 'files': items})
+            else:
+                subs = []
+                for si, sraw in enumerate(c.items(f'{gwhere}.subgroups', graw.get('subgroups'), 2)):
+                    swhere = f'{gwhere}.subgroups[{si}]'
+                    if not c.keys(swhere, sraw, ('files',), ('title', 'summary')):
+                        continue
+                    items = []
+                    for fi, fraw in enumerate(c.items(f'{swhere}.files', sraw.get('files'), 1)):
+                        parsed = parse_plan_file_item(fraw, f'{swhere}.files[{fi}]', by_path, c)
+                        if parsed:
+                            if parsed['path'] in seen_paths:
+                                c.error(f'{swhere}.files[{fi}]', f'{parsed["path"]} appears more than once')
+                            seen_paths.add(parsed['path'])
+                            items.append(parsed)
+                    subs.append({'title': sraw.get('title', pair), 'summary': sraw.get('summary', pair), 'files': items})
+                groups.append({'title': gtitle, 'summary': gsummary, 'subgroups': subs})
+        domains.append({'name': name, 'points': points, 'groups': groups})
+
+    auto_placed = []
+    if auto_place and not c.errors:
+        by_target = {}
+        unpaired_tests = []
+        for f in manifest['files']:
+            if f['path'] in seen_paths or not f['isTest']:
+                continue
+            if f['testOf'] and f['testOf'] in seen_paths:
+                by_target.setdefault(f['testOf'], []).append({'path': f['path'], 'explicit': False, 'pairedRaw': None, 'pairedList': None})
+                auto_placed.append((f['path'], f'after {f["testOf"]}'))
+            elif not f['testOf']:
+                unpaired_tests.append({'path': f['path'], 'explicit': False, 'pairedRaw': None, 'pairedList': None})
+                auto_placed.append((f['path'], f'in {TESTS_DOMAIN}'))
+        if by_target:
+            for d in domains:
+                for g in d['groups']:
+                    containers = [g['files']] if 'files' in g else [s['files'] for s in g['subgroups']]
+                    for flist in containers:
+                        expanded = []
+                        for item in flist:
+                            expanded.append(item)
+                            expanded.extend(by_target.get(item['path'], []))
+                        flist[:] = expanded
+        if unpaired_tests:
+            existing_tests = next((d for d in domains if d['name'] == TESTS_DOMAIN), None)
+            if existing_tests is None:
+                domains.append({'name': TESTS_DOMAIN, 'points': [pair],
+                                'groups': [{'title': pair, 'summary': pair, 'files': unpaired_tests}]})
+            elif existing_tests['groups'] and 'files' in existing_tests['groups'][-1]:
+                existing_tests['groups'][-1]['files'].extend(unpaired_tests)
+            else:
+                existing_tests['groups'].append({'title': pair, 'summary': pair, 'files': unpaired_tests})
+
+    placement = {}
+    domain_names = [d['name'] for d in domains]
+    for di, d in enumerate(domains):
+        for gi, g in enumerate(d['groups']):
+            if 'files' in g:
+                for fi, item in enumerate(g['files']):
+                    test_of = by_path[item['path']]['testOf']
+                    placement[item['path']] = {
+                        'where': f'plan.domains[{di}].groups[{gi}].files[{fi}]',
+                        'domain': di, 'domainName': d['name'], 'container': (di, gi), 'kind': 'group', 'index': fi,
+                        'paired': item['pairedList'] if item['explicit'] else ([test_of] if test_of else None),
+                        'explicit': item['explicit'],
+                    }
+            else:
+                for si, s in enumerate(g['subgroups']):
+                    for fi, item in enumerate(s['files']):
+                        test_of = by_path[item['path']]['testOf']
+                        placement[item['path']] = {
+                            'where': f'plan.domains[{di}].groups[{gi}].subgroups[{si}].files[{fi}]',
+                            'domain': di, 'domainName': d['name'], 'container': (di, gi, si), 'kind': 'subgroup', 'index': fi,
+                            'paired': item['pairedList'] if item['explicit'] else ([test_of] if test_of else None),
+                            'explicit': item['explicit'],
+                        }
+    check_placement_rules(placement, by_path, domain_names, c)
+    if c.errors:
+        print(f'plan has {len(c.errors)} problem(s); nothing was written:', file=sys.stderr)
+        for error in c.errors:
+            print(f'  - {error}', file=sys.stderr)
+        return 2
+
+    parts_dir = os.path.join(work, 'parts')
+    previous_hashes = manifest.get('scaffoldParts') or {}
+    if os.path.isdir(parts_dir) and not args.force:
+        for fname in sorted(os.listdir(parts_dir)):
+            if not fname.endswith('.json'):
+                continue
+            fpath = os.path.join(parts_dir, fname)
+            if fname in previous_hashes and sha256(open(fpath, encoding='utf-8').read()) != previous_hashes[fname]:
+                raise Fail(f'{fpath} has already been edited; re-run with --force to overwrite parts/')
+            if fname not in previous_hashes:
+                raise Fail(f'{fpath} already exists; re-run with --force to overwrite parts/')
+
+    overview = {
+        'schema': PART_SCHEMA,
+        'part': 'overview',
+        'meta': meta,
+        'conclusion': pair,
+        'behavior': {'summary': pair, 'rows': [{'scenario': pair, 'before': pair, 'after': pair}]},
+        'changesSummary': pair,
+        'risks': {'summary': pair, 'items': [{'level': 'Medium', 'title': pair, 'detail': pair}]},
+    }
+    flow_cfg = plan.get('flow')
+    if flow_cfg is True:
+        overview['flow'] = {'summary': pair, 'steps': [{'title': pair, 'detail': pair}, {'title': pair, 'detail': pair}]}
+    elif isinstance(flow_cfg, dict):
+        overview['flow'] = flow_cfg
+    contract_cfg = plan.get('contract')
+    if contract_cfg is True:
+        overview['contract'] = {'summary': pair, 'rows': [{'boundary': pair, 'representation': pair, 'constraint': pair}]}
+    elif isinstance(contract_cfg, dict):
+        overview['contract'] = contract_cfg
+
+    part_files = [('00-overview.json', overview)]
+    for di, d in enumerate(domains):
+        part_files.extend(chunk_domain(d, di, args.max_files))
+
+    if os.path.isdir(parts_dir):
+        for fname in os.listdir(parts_dir):
+            if fname.endswith('.json'):
+                os.remove(os.path.join(parts_dir, fname))
+    os.makedirs(parts_dir, exist_ok=True)
+    new_hashes = {}
+    for fname, payload in part_files:
+        text = json.dumps(payload, ensure_ascii=False, indent=2) + '\n'
+        write_text(os.path.join(parts_dir, fname), text)
+        new_hashes[fname] = sha256(text)
+    manifest['scaffoldParts'] = new_hashes
+    write_text(os.path.join(work, 'manifest.json'), json.dumps(manifest, ensure_ascii=False, indent=2))
+
+    print(f'Scaffolded: {parts_dir} ({len(part_files)} files, max {args.max_files} files/part)')
+    for fname, payload in part_files:
+        if payload['part'] == 'overview':
+            print(f'  {fname}  (overview)')
+        else:
+            nfiles = sum(len(g.get('files', [])) + sum(len(s['files']) for s in g.get('subgroups', [])) for g in payload['groups'])
+            print(f'  {fname}  ({payload["domain"]}, {plural(nfiles, "file")})')
+    if auto_placed:
+        print(f'Auto-placed {plural(len(auto_placed), "test")}:')
+        for tpath, dest in auto_placed[:20]:
+            print(f'  {tpath} -> {dest}')
+        if len(auto_placed) > 20:
+            print(f'  ... and {len(auto_placed) - 20} more')
+    return 0
+
+
+def validate_part_payload(data, where, by_path, c):
+    if not isinstance(data, dict):
+        c.error(where, 'must be a JSON object')
+        return
+    if 'schema' in data and data['schema'] != PART_SCHEMA:
+        c.error(f'{where}.schema', f'must be "{PART_SCHEMA}"')
+    kind = data.get('part')
+    if kind == 'overview':
+        if not c.keys(where, data, ('part', 'meta', 'conclusion', 'behavior', 'changesSummary', 'risks'), ('schema', 'flow', 'contract')):
+            return
+        meta = data.get('meta', {})
+        if c.keys(f'{where}.meta', meta, ('title', 'subtitle')):
+            c.plain(f'{where}.meta.title', meta.get('title'), cjk_ok=False)
+            c.plain(f'{where}.meta.subtitle', meta.get('subtitle'), cjk_ok=False)
+        c.pair(f'{where}.conclusion', data.get('conclusion'))
+        c.pair(f'{where}.changesSummary', data.get('changesSummary'))
+        for name, list_key, minimum, maximum, fields, opt in (
+            ('behavior', 'rows', 1, None, ('scenario', 'before', 'after'), False),
+            ('flow', 'steps', 2, 5, ('title', 'detail'), True),
+            ('contract', 'rows', 1, None, ('boundary', 'representation', 'constraint'), True),
+            ('risks', 'items', 1, None, ('title', 'detail'), False),
+        ):
+            val = data.get(name)
+            if val is None and opt:
+                continue
+            if not c.keys(f'{where}.{name}', val, (list_key,), ('summary',)):
+                continue
+            if 'summary' in val:
+                c.pair(f'{where}.{name}.summary', val['summary'])
+            for i, row in enumerate(c.items(f'{where}.{name}.{list_key}', val.get(list_key), minimum, maximum)):
+                rwhere = f'{where}.{name}.{list_key}[{i}]'
+                extra = ('level',) if name == 'risks' else ()
+                if c.keys(rwhere, row, fields + extra):
+                    for field in fields:
+                        c.pair(f'{rwhere}.{field}', row.get(field))
+                    if name == 'risks' and row.get('level') not in RISK_LEVELS:
+                        c.error(f'{rwhere}.level', f'must be one of {list(RISK_LEVELS)}')
+    elif kind == 'domain':
+        if not c.keys(where, data, ('part', 'domainIndex', 'domain', 'groups'), ('schema', 'points')):
+            return
+        c.plain(f'{where}.domain', data.get('domain'), cjk_ok=False)
+        if 'points' in data:
+            for pi, p in enumerate(c.items(f'{where}.points', data.get('points'), 1, 4)):
+                c.pair(f'{where}.points[{pi}]', p)
+
+        def check_file_list(fwhere_prefix, raw_files):
+            for fi, fraw in enumerate(c.items(f'{fwhere_prefix}.files', raw_files, 1)):
+                fwhere = f'{fwhere_prefix}.files[{fi}]'
+                if not c.keys(fwhere, fraw, ('path', 'role', 'units'), ('pairedWith',)):
+                    continue
+                if fraw.get('path') not in by_path:
+                    c.error(f'{fwhere}.path', f'{fraw.get("path")!r} is not a changed file in this diff')
+                c.pair(f'{fwhere}.role', fraw.get('role'))
+                for ui, uraw in enumerate(c.items(f'{fwhere}.units', fraw.get('units'), 1)):
+                    uwhere = f'{fwhere}.units[{ui}]'
+                    if c.keys(uwhere, uraw, ('name', 'change', 'reason')):
+                        c.plain(f'{uwhere}.name', uraw.get('name'))
+                        c.pair(f'{uwhere}.change', uraw.get('change'), ui=False)
+                        c.pair(f'{uwhere}.reason', uraw.get('reason'), ui=False)
+
+        for gi, graw in enumerate(c.items(f'{where}.groups', data.get('groups'), 1)):
+            gwhere = f'{where}.groups[{gi}]'
+            if not c.keys(gwhere, graw, ('groupIndex',), ('title', 'summary', 'files', 'subgroups')):
+                continue
+            if 'title' in graw:
+                c.pair(f'{gwhere}.title', graw.get('title'))
+            if 'summary' in graw:
+                c.pair(f'{gwhere}.summary', graw.get('summary'))
+            if ('files' in graw) == ('subgroups' in graw):
+                c.error(gwhere, 'needs exactly one of "files" or "subgroups"')
+            elif 'files' in graw:
+                check_file_list(gwhere, graw.get('files'))
+            else:
+                for si, sraw in enumerate(c.items(f'{gwhere}.subgroups', graw.get('subgroups'), 1)):
+                    swhere = f'{gwhere}.subgroups[{si}]'
+                    if not c.keys(swhere, sraw, ('subgroupIndex', 'files'), ('title', 'summary')):
+                        continue
+                    if 'title' in sraw:
+                        c.pair(f'{swhere}.title', sraw.get('title'))
+                    if 'summary' in sraw:
+                        c.pair(f'{swhere}.summary', sraw.get('summary'))
+                    check_file_list(swhere, sraw.get('files'))
+    else:
+        c.error(f'{where}.part', 'must be "overview" or "domain"')
+
+
+def load_parts(work):
+    parts_dir = os.path.join(work, 'parts')
+    if not os.path.isdir(parts_dir):
+        raise Fail(f'missing parts directory: {parts_dir} (run scaffold first)')
+    names = sorted(f for f in os.listdir(parts_dir) if f.endswith('.json'))
+    if not names:
+        raise Fail(f'no .json part files found in {parts_dir}')
+    return [(name, read_json(os.path.join(parts_dir, name))) for name in names]
+
+
+def assemble_parts(work, manifest):
+    parts = load_parts(work)
+    by_path = {f['path']: f for f in manifest['files']}
+    c = Checker()
+    for zh, en in FIXED_EN.items():
+        c.pairs[zh] = en
+    overviews = []
+    domain_chunks = []
+    for fname, data in parts:
+        validate_part_payload(data, fname, by_path, c)
+        if isinstance(data, dict) and data.get('part') == 'overview':
+            overviews.append((fname, data))
+        elif isinstance(data, dict) and data.get('part') == 'domain':
+            domain_chunks.append((fname, data))
+    if len(overviews) != 1:
+        c.error('parts', f'expected exactly 1 overview part, found {len(overviews)}')
+    if not domain_chunks:
+        c.error('parts', 'expected at least 1 domain part')
+    if c.errors:
+        return None, c
+
+    _, ov = overviews[0]
+    by_domain = {}
+    for fname, chunk in domain_chunks:
+        di = chunk['domainIndex']
+        dname = chunk['domain']
+        bucket = by_domain.setdefault(di, {'name': dname, 'points': None, 'groups': {}})
+        if bucket['name'] != dname:
+            c.error(fname, f'domainIndex {di} disagrees on domain name: {bucket["name"]!r} vs {dname!r}')
+        if 'points' in chunk:
+            bucket['points'] = chunk['points']
+        for gchunk in chunk['groups']:
+            gi = gchunk['groupIndex']
+            gbucket = bucket['groups'].setdefault(gi, {'title': None, 'summary': None, 'files': None, 'subgroups': {}})
+            if 'title' in gchunk:
+                gbucket['title'] = gchunk['title']
+            if 'summary' in gchunk:
+                gbucket['summary'] = gchunk['summary']
+            if 'files' in gchunk:
+                if gbucket['subgroups']:
+                    c.error(fname, f'domain {dname} group {gi} mixes "files" and "subgroups"')
+                gbucket['files'] = (gbucket['files'] or []) + gchunk['files']
+            elif 'subgroups' in gchunk:
+                if gbucket['files'] is not None:
+                    c.error(fname, f'domain {dname} group {gi} mixes "files" and "subgroups"')
+                for schunk in gchunk['subgroups']:
+                    si = schunk['subgroupIndex']
+                    sbucket = gbucket['subgroups'].setdefault(si, {'title': None, 'summary': None, 'files': []})
+                    if 'title' in schunk:
+                        sbucket['title'] = schunk['title']
+                    if 'summary' in schunk:
+                        sbucket['summary'] = schunk['summary']
+                    sbucket['files'].extend(schunk['files'])
+
+    assembled_domains = []
+    for di in sorted(by_domain):
+        db = by_domain[di]
+        if db['points'] is None:
+            c.error(f'domain[{di}]', f'domain {db["name"]!r} is missing "points"')
+            continue
+        assembled_groups = []
+        for gi in sorted(db['groups']):
+            gb = db['groups'][gi]
+            if gb['title'] is None or gb['summary'] is None:
+                c.error(f'domain[{di}].groups[{gi}]', 'missing "title" or "summary"')
+                continue
+            gobj = {'title': gb['title'], 'summary': gb['summary']}
+            if gb['files'] is not None:
+                gobj['files'] = gb['files']
+            else:
+                subs_out = []
+                for si in sorted(gb['subgroups']):
+                    sb = gb['subgroups'][si]
+                    if sb['title'] is None or sb['summary'] is None:
+                        c.error(f'domain[{di}].groups[{gi}].subgroups[{si}]', 'missing "title" or "summary"')
+                        continue
+                    subs_out.append({'title': sb['title'], 'summary': sb['summary'], 'files': sb['files']})
+                gobj['subgroups'] = subs_out
+            assembled_groups.append(gobj)
+        assembled_domains.append({'name': db['name'], 'points': db['points'], 'groups': assembled_groups})
+
+    if c.errors:
+        return None, c
+
+    content = {
+        'schema': CONTENT_SCHEMA,
+        'meta': ov['meta'],
+        'conclusion': ov['conclusion'],
+        'behavior': ov['behavior'],
+    }
+    if ov.get('flow') is not None:
+        content['flow'] = ov['flow']
+    content['changes'] = {'summary': ov['changesSummary'], 'domains': assembled_domains}
+    if ov.get('contract') is not None:
+        content['contract'] = ov['contract']
+    content['risks'] = ov['risks']
+
+    _, full_checker = validate(content, manifest)
+    return content, full_checker
+
+
+def cmd_check(args):
+    work = os.path.abspath(args.work)
+    manifest = load_manifest(work)
+    by_path = {f['path']: f for f in manifest['files']}
+    if args.part:
+        part_path = os.path.abspath(args.part)
+        data = read_json(part_path)
+        c = Checker()
+        for zh, en in FIXED_EN.items():
+            c.pairs[zh] = en
+        validate_part_payload(data, os.path.basename(part_path), by_path, c)
+        if c.errors:
+            print(f'{part_path} has {len(c.errors)} problem(s):', file=sys.stderr)
+            for error in c.errors:
+                print(f'  - {error}', file=sys.stderr)
+            return 2
+        print(f'Valid    : {part_path}')
+        return 0
+    _, c = assemble_parts(work, manifest)
+    for warning in c.warnings:
+        print(f'WARNING (fix unless you have a reason): {warning}')
+    if c.errors:
+        print(f'parts have {len(c.errors)} problem(s):', file=sys.stderr)
+        for error in c.errors:
+            print(f'  - {error}', file=sys.stderr)
+        return 2
+    print(f'Valid    : {os.path.join(work, "parts")} (ready for assemble)')
+    return 0
+
+
+def cmd_assemble(args):
+    work = os.path.abspath(args.work)
+    manifest = load_manifest(work)
+    content, c = assemble_parts(work, manifest)
+    for warning in c.warnings:
+        print(f'WARNING (fix unless you have a reason): {warning}')
+    if c.errors:
+        print(f'Cannot assemble content.json ({len(c.errors)} problem(s)):', file=sys.stderr)
+        for error in c.errors:
+            print(f'  - {error}', file=sys.stderr)
+        return 2
+    out_content = os.path.join(work, 'content.json')
+    write_text(out_content, json.dumps(content, ensure_ascii=False, indent=2) + '\n')
+    print(f'Assembled: {out_content}')
+    if args.render:
+        return render_work(work, manifest, content, args.out)
+    return 0
+
+
+def cmd_locate(args):
+    start = os.path.abspath(args.repo)
+    hint = start if os.path.isdir(start) else os.getcwd()
+    if args.pr:
+        pr = parse_pr_url(args.pr)
+        direct, remote = find_local_repo(hint, pr)
+        matches = []
+        if direct:
+            matches.append({'path': direct, 'remote': remote, 'isMain': True})
+        for item in discover_pr_repos(hint, pr, args.search_root):
+            if not any(os.path.realpath(m['path']) == os.path.realpath(item['path']) for m in matches):
+                matches.append(item)
+        label = f'{pr["host"]}/{pr["owner"]}/{pr["repo"]}'
+    else:
+        matches = discover_named_repos(args.name, hint, args.search_root)
+        label = args.name
+    if not matches:
+        print(f'No local clone found for {label}')
+        return 1
+    for m in matches:
+        kind = 'repo' if m.get('isMain') else 'worktree'
+        remote_info = f'remote={m["remote"]}' if m.get('remote') else 'no-matching-remote'
+        print(f'{m["path"]}  [{kind}, {remote_info}]')
+    return 0
+
+
+def cmd_smoke(args):
+    if args.html:
+        html_path = os.path.abspath(args.html)
+    else:
+        work = os.path.abspath(args.work)
+        manifest = load_manifest(work)
+        html_path = os.path.abspath(manifest['output'])
+    if not os.path.isfile(html_path):
+        raise Fail(f'HTML file not found: {html_path} (run render first)')
+    node = shutil.which('node')
+    if not node:
+        raise Fail('node not found on PATH; run the browser smoke test manually or install Node.js')
+    if not os.path.isfile(SMOKE_RUNNER_PATH):
+        raise Fail(f'smoke runner script missing: {SMOKE_RUNNER_PATH}')
+    proc = subprocess.run([node, SMOKE_RUNNER_PATH, html_path])
+    return proc.returncode
 
 
 # ---------------------------------------------------------------- rendering
@@ -1061,16 +1963,11 @@ def audit(html_text, manifest, ui_pairs):
     return problems
 
 
-def cmd_render(args):
-    work = os.path.abspath(args.work)
-    manifest = read_json(os.path.join(work, 'manifest.json'))
-    if manifest.get('schema') != MANIFEST_SCHEMA:
-        raise Fail('manifest.json is not from this script version; re-run collect')
+def render_work(work, manifest, content, out_override=None):
     with open(os.path.join(work, 'diff.patch'), encoding='utf-8', newline='') as handle:
         patch = handle.read()
     if sha256(patch) != manifest['diffSha256']:
         raise Fail('diff.patch changed after collect; re-run collect instead of editing it')
-    content = read_json(args.content or os.path.join(work, 'content.json'))
     model, checker = validate(content, manifest)
     for warning in checker.warnings:
         print(f'WARNING (fix unless you have a reason): {warning}')
@@ -1082,7 +1979,7 @@ def cmd_render(args):
     sections = split_patch(patch)
     _, parsed = assemble_files(parse_name_status_from_manifest(manifest), numstat_from_manifest(manifest), sections)
     hunks_by_path = {f['path']: hunks for f, hunks in zip(manifest['files'], parsed)}
-    out_path = os.path.abspath(args.out or manifest['output'])
+    out_path = os.path.abspath(out_override or manifest['output'])
     ui_pairs = dict(checker.pairs)
     html_text = build_html(manifest, model, hunks_by_path, out_path, ui_pairs)
     problems = audit(html_text, manifest, ui_pairs)
@@ -1107,6 +2004,37 @@ def cmd_render(args):
     print(f'- Untracked files excluded: {", ".join(manifest["untrackedExcluded"]) or "none"}')
     print(f'- Storage keys: code-review-comments:{label} (comments), code-review-language:{label} (language)')
     return 0
+
+
+def cmd_render(args):
+    work = os.path.abspath(args.work)
+    manifest = load_manifest(work)
+    content_path = args.content or os.path.join(work, 'content.json')
+    if not args.content:
+        parts_dir = os.path.join(work, 'parts')
+        part_names = [f for f in os.listdir(parts_dir) if f.endswith('.json')] if os.path.isdir(parts_dir) else []
+        if part_names:
+            skel_sha = manifest.get('skeletonSha256')
+            is_untouched = (not os.path.exists(content_path)) or (
+                skel_sha and sha256(open(content_path, encoding='utf-8').read()) == skel_sha
+            )
+            if is_untouched:
+                assembled, checker = assemble_parts(work, manifest)
+                for warning in checker.warnings:
+                    print(f'WARNING (fix unless you have a reason): {warning}')
+                if checker.errors:
+                    print(f'Cannot assemble content.json ({len(checker.errors)} problem(s)):', file=sys.stderr)
+                    for error in checker.errors:
+                        print(f'  - {error}', file=sys.stderr)
+                    return 2
+                write_text(content_path, json.dumps(assembled, ensure_ascii=False, indent=2) + '\n')
+                print(f'Assembled: {content_path}')
+                return render_work(work, manifest, assembled, args.out)
+            newest_part = max(os.path.getmtime(os.path.join(parts_dir, f)) for f in part_names)
+            if newest_part > os.path.getmtime(content_path):
+                print('WARNING: parts/ has files newer than content.json; run `assemble` first if you edited parts.')
+    content = read_json(content_path)
+    return render_work(work, manifest, content, args.out)
 
 
 def parse_name_status_from_manifest(manifest):
@@ -1144,12 +2072,16 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='command', required=True)
 
     collect = sub.add_parser('collect', help='resolve the review scope and write the work files')
-    collect.add_argument('--repo', default='.', help='repository (or a path inside it); default: current directory')
+    collect.add_argument('--repo', default='.', help='repository path, search directory, or repository name; default: current directory')
     collect.add_argument('--base', default='origin/main', help='base ref for local reviews (default: origin/main)')
     scope = collect.add_mutually_exclusive_group()
     scope.add_argument('--head', help='review this commit instead of the working tree')
     scope.add_argument('--pr', help='review a GitHub / GitHub Enterprise pull request URL, diffed against the PR\'s '
                                     'recorded base commit exactly like its "Files changed" tab')
+    collect.add_argument('--search-root', action='append', default=[],
+                         help='extra root directory to scan for local clones (repeatable; also CRW_REPO_ROOTS)')
+    collect.add_argument('--no-local-search', action='store_true',
+                         help='PR mode: only check --repo directly instead of scanning common directories for a local clone')
     collect.add_argument('--exclude', action='append', default=[],
                          help='working-tree mode: leave out matching UNTRACKED files (glob, or dir/ prefix); repeatable')
     collect.add_argument('--allow', action='append', default=[],
@@ -1160,11 +2092,45 @@ def main(argv=None):
     collect.add_argument('--work', help='work directory (default: a new temporary directory)')
     collect.set_defaults(func=cmd_collect)
 
+    locate = sub.add_parser('locate', help='find locally cloned repositories matching a PR URL or name')
+    target = locate.add_mutually_exclusive_group(required=True)
+    target.add_argument('--pr', help='pull request URL whose repository to locate locally')
+    target.add_argument('--name', help='repository name or owner/repo to locate locally')
+    locate.add_argument('--repo', default='.', help='starting workspace or directory; default: current directory')
+    locate.add_argument('--search-root', action='append', default=[], help='extra root directory to scan (repeatable)')
+    locate.set_defaults(func=cmd_locate)
+
+    scaffold = sub.add_parser('scaffold', help='validate plan.json upfront and split into bounded parts/*.json skeletons')
+    scaffold.add_argument('--work', required=True, help='work directory printed by collect')
+    scaffold.add_argument('--plan', help='plan JSON path (default: <work>/plan.json)')
+    scaffold.add_argument('--max-files', type=int, default=12, help='max changed files per domain part file (default: 12)')
+    scaffold.add_argument('--auto-place-tests', action='store_true',
+                          help='automatically insert omitted test files after their manifest testOf implementation, or into Tests')
+    scaffold.add_argument('--force', action='store_true', help='overwrite existing edited files in parts/')
+    scaffold.set_defaults(func=cmd_scaffold)
+
+    check = sub.add_parser('check', help='validate one part file or all parts/*.json')
+    check.add_argument('--work', required=True, help='work directory printed by collect')
+    check.add_argument('--part', help='validate a single part JSON file instead of all parts/')
+    check.set_defaults(func=cmd_check)
+
+    assemble = sub.add_parser('assemble', help='merge parts/*.json into content.json and validate it')
+    assemble.add_argument('--work', required=True, help='work directory printed by collect')
+    assemble.add_argument('--render', action='store_true', help='also render the HTML after assembling')
+    assemble.add_argument('--out', help='override the HTML output path when --render is passed')
+    assemble.set_defaults(func=cmd_assemble)
+
     render = sub.add_parser('render', help='validate content.json and write the HTML')
     render.add_argument('--work', required=True, help='work directory printed by collect')
     render.add_argument('--content', help='content JSON (default: <work>/content.json)')
     render.add_argument('--out', help='override the HTML output path')
     render.set_defaults(func=cmd_render)
+
+    smoke = sub.add_parser('smoke', help='run the Playwright browser smoke test via a local ephemeral server')
+    smoke_target = smoke.add_mutually_exclusive_group(required=True)
+    smoke_target.add_argument('--work', help='work directory printed by collect (uses manifest output path)')
+    smoke_target.add_argument('--html', help='rendered HTML file path to smoke-test')
+    smoke.set_defaults(func=cmd_smoke)
 
     cleanup = sub.add_parser('cleanup', help='delete the temporary work directory')
     cleanup.add_argument('--work', required=True, help='work directory printed by collect')

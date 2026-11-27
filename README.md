@@ -59,16 +59,16 @@ By default, the scope runs from the merge base of `origin/main` and `HEAD` to th
 
 > Use code-review-workspace to generate an offline review page for this PR: https://github.com/OWNER/REPO/pull/123
 
-Replace the example URL with a real PR URL. PR mode uses the PR's recorded base commit and head to determine the review scope.
+Replace the example URL with a real PR URL. PR mode uses the PR's recorded base commit and head to determine the review scope, and automatically searches common local code directories for an existing clone before falling back to a temporary clone.
 
 ### Generating and reading a workspace
 
-1. The agent collects the real diff, analyzes behavior before and after the changes, and writes structured explanations.
+1. The agent collects the real diff, analyzes behavior before and after the changes, validates the pyramid plan, and writes structured explanations (split into bounded parts for larger diffs).
 2. The rendering script validates file coverage, grouping, and bilingual content, then produces one HTML file.
-3. The agent checks comment persistence, Markdown export, and desktop and mobile layouts in a browser. If no browser tool is available, it should report those checks as not verified.
+3. The agent runs the browser smoke checks (via the bundled Playwright runner or an interactive browser tool) to verify comment persistence, Markdown export, and desktop and mobile layouts. If no browser tool is available, it should report those checks as not verified.
 4. Open the HTML path from the agent's report. Read the conclusion and behavior changes first, then inspect grouped diffs, add line comments, and export feedback as Markdown.
 
-The default output is under `analysis/<ticket-or-PR-or-branch>/..._code-review.html` in the target repository. Use the exact path reported by the agent.
+The default output is under `analysis/<ticket-or-PR-or-branch>/..._code-review.html` in the target repository (or the current analysis workspace when invoked outside the target repository). Use the exact path reported by the agent.
 
 ### Requirements and boundaries
 
@@ -76,7 +76,7 @@ The default output is under `analysis/<ticket-or-PR-or-branch>/..._code-review.h
 | --- | --- |
 | Local code analysis and HTML generation | A skill-capable AI agent, Git 2.25+, and Python 3.9+; the Python script uses only the standard library |
 | PR URL analysis | Additionally requires the `gh` CLI authenticated for the relevant GitHub or GitHub Enterprise host |
-| Complete browser smoke checks | A browser automation tool available to the agent, such as Playwright |
+| Complete browser smoke checks | Node.js with Playwright (reuses cached Playwright/system Chrome/Edge via the bundled runner) or an interactive browser automation tool |
 | Reading a generated page | A browser; the page itself works offline, while external source links still require network access and repository permissions |
 
 The skill presents changes and organizes feedback. It does not replace human review, post GitHub comments, approve PRs, or modify product code. Generated pages contain real code, so inspect their contents before sharing. Comments are stored in the current browser origin's localStorage and do not automatically sync across devices. Moving the file or changing its URL may also make existing comments unavailable.
